@@ -4,7 +4,11 @@
 
 # Aerial for Mac Time Offset (非公式)
 
-[English README](./Readme.md)
+<p align="center">
+  <strong>Language / 言語:</strong>
+  <a href="./Readme.md">English</a> |
+  <strong>日本語</strong>
+</p>
 
 > このリポジトリは [JohnCoates/Aerial](https://github.com/JohnCoates/Aerial) の非公式フォークです。  
 > 画面上の時計表示に手動オフセットを適用する機能を追加しています。  

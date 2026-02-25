@@ -4,7 +4,11 @@
 
 # Aerial for Mac Time Offset (Unofficial)
 
-[日本語版 README](./Readme.ja.md)
+<p align="center">
+  <strong>Language / 言語:</strong>
+  <strong>English</strong> |
+  <a href="./Readme.ja.md">日本語</a>
+</p>
 
 > This repository is an unofficial fork of [JohnCoates/Aerial](https://github.com/JohnCoates/Aerial).  
 > It adds support for applying a manual offset to the on-screen clock display.  
