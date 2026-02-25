@@ -2,6 +2,10 @@
 
 (If you want to help with translations, please check [this page here](https://github.com/JohnCoates/Aerial/blob/master/Resources/Community/Readme.md).)
 
+This repository is an unofficial fork of [JohnCoates/Aerial](https://github.com/JohnCoates/Aerial).
+Use this repository for issues/PRs related to fork-specific behavior (for example, clock time offset changes).
+For official upstream changes, please contribute directly to JohnCoates/Aerial.
+
 If you want to contribute code to Aerial, you are more than welcome!
 
 Feel free to directly submit a PR for small changes or quick bug fixes, so we can have a look. 
@@ -25,7 +29,7 @@ From your main repo folder.
 
 This is the easiest way to pull Aerial. 
 
-- From terminal in a suitable location, run `git clone --recurse-submodules https://github.com/JohnCoates/Aerial.git`. This will bring Aerial and it's dependencies (Sparkle).  
+- From terminal in a suitable location, run `git clone --recurse-submodules <this-fork-repo-url>`. This will bring this fork and its dependencies (Sparkle).  
 - In the future, if you wish to update Sparkle, you can run `git submodule update --init --recursive` 
 - Open the `Aerial.xcodeproj` in Xcode
 - Top left of the screen, pick the "AerialApp" scheme :
@@ -34,4 +38,4 @@ This is the easiest way to pull Aerial.
 
 The AerialApp scheme compiles Aerial as an App, instead of a screensaver, so you can more easily test and debug your code in Xcode. Use the Aerial scheme to compile as a screensaver. 
 
-If you are running into an issue, feel free to open an issue so we can assist you.
+If you are running into an issue, open an issue in this fork for fork-specific behavior, or in upstream for official Aerial behavior.

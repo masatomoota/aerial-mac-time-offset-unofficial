@@ -13,6 +13,20 @@ class ClockLayer: AnimationTextLayer {
     var config: PrefsInfo.Clock?
     var wasSetup = false
     var clockTimer: Timer?
+    static let clockOffsetMinutesEnv = "AERIAL_CLOCK_OFFSET_MINUTES"
+    static let clockOffsetSeconds: TimeInterval = {
+        guard let rawValue = ProcessInfo.processInfo.environment[clockOffsetMinutesEnv] else {
+            return 10 * 60 // Keep current behavior when env is not provided.
+        }
+
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let minutes = Double(trimmedValue) else {
+            errorLog("Invalid value for \(clockOffsetMinutesEnv): \(rawValue)")
+            return 10 * 60
+        }
+
+        return minutes * 60
+    }()
 
     override init(layer: Any) {
         super.init(layer: layer)
@@ -85,6 +99,7 @@ class ClockLayer: AnimationTextLayer {
             dateFormatter.pmSymbol = ""
         }
 
-        return dateFormatter.string(from: Date())
+        let offsetDate = Date().addingTimeInterval(Self.clockOffsetSeconds)
+        return dateFormatter.string(from: offsetDate)
     }
 }

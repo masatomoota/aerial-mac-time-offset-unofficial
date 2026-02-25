@@ -1,9 +1,11 @@
 #### General troubleshooting tips
 
 Before logging an issue please check that:
-- [ ] You have the latest version installed (There may be a beta version that fixes your issue), see here for the latest releases and bug fixes: https://github.com/JohnCoates/Aerial/releases
-- [ ] Your issue isn't already mentioned in our [issues](https://github.com/JohnCoates/Aerial/issues). You may find a workaround there or a similar request already made.
-- [ ] Your problem isn't mentioned in the [troubleshooting page](https://github.com/JohnCoates/Aerial/blob/master/Documentation/Troubleshooting.md).
+- [ ] You have the latest version installed (there may be a beta/fix in a newer build). Check this fork's `Releases` tab.
+- [ ] Your issue isn't already mentioned in this fork's `Issues` tab.
+- [ ] Your problem isn't mentioned in the [troubleshooting page](Documentation/Troubleshooting.md).
+
+If your report is about behavior that exists in official Aerial (upstream) and not this fork's custom changes, please report it to https://github.com/JohnCoates/Aerial/issues.
 
 If none of this fixes your issue, tell us about the problem you are experiencing or the feature you'd like to request.
 

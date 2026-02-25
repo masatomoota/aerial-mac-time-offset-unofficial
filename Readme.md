@@ -2,10 +2,11 @@
   <img src="https://cloud.githubusercontent.com/assets/499192/10754100/c0e1cc4c-7c95-11e5-9d3b-842d3acc2fd5.gif">
 </p>
 
-# Aerial - Apple TV Aerial Views Screen Saver
+# Aerial for Mac Time Offset (Unofficial)
 
-![Github All Releases](https://img.shields.io/github/downloads/johncoates/aerial/total.svg?maxAge=86400)
-![GitHub contributors](https://img.shields.io/github/contributors/johncoates/aerial.svg?maxAge=2592000)
+> This repository is an unofficial fork of [JohnCoates/Aerial](https://github.com/JohnCoates/Aerial).  
+> It adds support for applying a manual offset to the on-screen clock display.  
+> It is not affiliated with, endorsed by, or supported by the official Aerial maintainers.
 
 Aerial is a Mac screensaver (macOS 10.12 or later) based on the new Apple TV screensaver that displays the Aerial movies Apple shot over New York, San Francisco, Hawaii, China, etc. Starting with version 2.0.0, it also includes videos shared by Joshua Michaels & Hal Bergman!
 
@@ -13,16 +14,24 @@ Aerial is completely open source, so feel free to contribute to its development.
 
 This repository is used **solely** for development.
 
+## Fork-specific feature: manual clock offset
+
+- Environment variable: `AERIAL_CLOCK_OFFSET_MINUTES`
+- Example: `AERIAL_CLOCK_OFFSET_MINUTES=-540`
+- Behavior when unset or invalid: defaults to `10` minutes (same behavior as this fork's current default)
+
 Starting with version 2.3.0, Aerial can now display current weather information *and* forecasts to your location, thanks to [OpenWeather](https://openweathermap.org). 
 
 ![openweather_logo](https://user-images.githubusercontent.com/37544189/115738975-d689bf80-a38d-11eb-809b-fbb019e6ed08.png)
 
 We thank [OpenWeather](https://openweathermap.org) for their support of Open Source projects. 
 
-# For downloads and instructions, please go to our new website, hosted on GitHub Page: https://aerialscreensaver.github.io
+# Official project
 
-> Windows user? Try [OrangeJedi/Aerial](https://github.com/OrangeJedi/Aerial) <br>
-> Linux user? Try [graysky2/xscreensaver-aerial](https://github.com/graysky2/xscreensaver-aerial/)
+- Official upstream repository: [JohnCoates/Aerial](https://github.com/JohnCoates/Aerial)
+- Official project website: [aerialscreensaver.github.io](https://aerialscreensaver.github.io)
+- Windows fork: [OrangeJedi/Aerial](https://github.com/OrangeJedi/Aerial)  
+- Linux implementation: [graysky2/xscreensaver-aerial](https://github.com/graysky2/xscreensaver-aerial/)
 
 ## About Aerial 
 
@@ -39,11 +48,11 @@ Starting with version 1.4, Aerial is maintained by [Guillaume Louel](https://git
 
 ## Community
 
-- **Found a bug?** Make sure you are running the latest version and please check our [FAQ](https://aerialscreensaver.github.io/faq.html) and [troubleshooting page](Documentation/Troubleshooting.md) and [our issues](https://github.com/JohnCoates/Aerial/issues), as someone may already have reported it (a beta may be available with the fix you need). Feel free to [open an issue](https://github.com/JohnCoates/Aerial/issues/new), try to be as specific as possible.
-- **Have you fixed a bug?** Or want to implement a feature? Check instructions on how to compile Aerial and more on [contributing here](Documentation/Contribute.md).
-- **Can you translate videos names and their descriptions?** Awesome! [Read here for details](Resources/Community/Readme.md) on how to help us.
-- **Have a feature request?** [Open an issue](https://github.com/JohnCoates/Aerial/issues/new). Tell us why it would be useful, and why you and others would want it.
-- **Join our [Community Discord server](https://discord.gg/TPuA5WG)** for technical support, feature requests, and a fun time!
+- **Found a bug in this fork?** Check [FAQ](https://aerialscreensaver.github.io/faq.html), the [troubleshooting page](Documentation/Troubleshooting.md), and [this fork's issues](../../issues). Then [open an issue in this fork](../../issues/new).
+- **Found an upstream bug?** Please use [JohnCoates/Aerial issues](https://github.com/JohnCoates/Aerial/issues).
+- **Have you fixed a bug or added a feature?** See [contributing guide](Documentation/Contribute.md).
+- **Can you translate videos names and descriptions?** [Read details](Resources/Community/Readme.md).
+- **Want official community support?** Join the upstream [Community Discord server](https://discord.gg/TPuA5WG).
 
 ## Multilingual Support
 
@@ -57,5 +66,7 @@ If you want to collaborate, please [read the details here](Resources/Community/R
 
 ## License
 
-[MIT License](https://raw.githubusercontent.com/JohnCoates/Aerial/master/LICENSE)
+This fork remains under the [MIT License](./LICENSE).
 
+Per MIT terms, original copyright and license notices are retained.
+See [FORK_NOTICE.md](./FORK_NOTICE.md) for attribution and fork policy.
