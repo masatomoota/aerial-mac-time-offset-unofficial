@@ -1,5 +1,7 @@
 # Fork Notice
 
+[日本語版](./FORK_NOTICE.ja.md)
+
 This repository is an unofficial fork of:
 - https://github.com/JohnCoates/Aerial
 

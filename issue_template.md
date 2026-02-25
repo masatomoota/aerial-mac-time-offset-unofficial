@@ -1,5 +1,7 @@
 #### General troubleshooting tips
 
+Japanese template: [issue_template.ja.md](./issue_template.ja.md)
+
 Before logging an issue please check that:
 - [ ] You have the latest version installed (there may be a beta/fix in a newer build). Check this fork's `Releases` tab.
 - [ ] Your issue isn't already mentioned in this fork's `Issues` tab.

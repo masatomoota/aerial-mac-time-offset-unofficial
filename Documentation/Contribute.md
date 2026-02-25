@@ -1,5 +1,7 @@
 # Contributing to Aerial
 
+[日本語版](./Contribute.ja.md)
+
 (If you want to help with translations, please check [this page here](https://github.com/JohnCoates/Aerial/blob/master/Resources/Community/Readme.md).)
 
 This repository is an unofficial fork of [JohnCoates/Aerial](https://github.com/JohnCoates/Aerial).
