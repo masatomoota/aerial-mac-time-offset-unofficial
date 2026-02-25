@@ -3,10 +3,10 @@
 This repository is prepared to be published as an unofficial fork of:
 - https://github.com/JohnCoates/Aerial
 
-## Recommended public title
+## Current public title
 
 - Display title: `Aerial for Mac Time Offset (Unofficial)`
-- GitHub repository slug (no spaces): `aerial-mac-time-offset-unofficial`
+- GitHub repository slug: `aerial-mac-time-offset-unofficial`
 
 ## 1) Authenticate GitHub CLI
 
@@ -20,7 +20,7 @@ gh auth login
 gh repo fork JohnCoates/Aerial --clone=false
 ```
 
-This creates `masatomo/Aerial` as a GitHub fork.
+This creates a fork in your account (only one direct fork per upstream repository).
 
 ## 3) Configure remotes in this local repo
 
@@ -28,7 +28,7 @@ This local repo already uses `upstream` for `JohnCoates/Aerial`.
 Add your fork as `origin`:
 
 ```bash
-git remote add origin https://github.com/masatomo/Aerial.git
+git remote add origin https://github.com/<your-account>/aerial-mac-time-offset-unofficial.git
 git remote -v
 ```
 
@@ -45,8 +45,8 @@ git push -u origin master
 If you want the URL slug to match the display title:
 
 ```bash
-gh repo rename aerial-mac-time-offset-unofficial --repo masatomo/Aerial
-git remote set-url origin https://github.com/masatomo/aerial-mac-time-offset-unofficial.git
+gh repo rename aerial-mac-time-offset-unofficial --repo <your-account>/<current-fork-name>
+git remote set-url origin https://github.com/<your-account>/aerial-mac-time-offset-unofficial.git
 ```
 
 ## 6) Recommended repository description
@@ -54,3 +54,9 @@ git remote set-url origin https://github.com/masatomo/aerial-mac-time-offset-uno
 Set in GitHub repository settings:
 
 `Unofficial fork of JohnCoates/Aerial with manual time-offset support for clock overlay.`
+
+## This repository's current state
+
+- GitHub URL: `https://github.com/masatomoota/aerial-mac-time-offset-unofficial`
+- `origin`: `https://github.com/masatomoota/aerial-mac-time-offset-unofficial.git`
+- `upstream`: `https://github.com/JohnCoates/Aerial.git`
