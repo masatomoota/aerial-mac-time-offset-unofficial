@@ -11,6 +11,8 @@ This documentation is still a work in progress, if you have any further question
 
 - [Information on compiling Aerial and contributing code](Contribute.md)
 
+- [Display settings transfer format (macOS export / Windows import guide)](DisplaySettingsTransferFormat.md)
+
 - [Offline mode and no network access.](OfflineMode.md)
 
 - [HEVC, HDR and hardware decoding](HardwareDecoding.md) 

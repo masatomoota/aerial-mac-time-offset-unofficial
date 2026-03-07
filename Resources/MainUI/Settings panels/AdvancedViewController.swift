@@ -9,6 +9,7 @@
 import Cocoa
 import AVFoundation
 import VideoToolbox
+import ScreenSaver
 
 class AdvancedViewController: NSViewController {
     var windowController: PanelWindowController?
@@ -53,6 +54,30 @@ class AdvancedViewController: NSViewController {
     @IBOutlet var showLogButton: NSButton!
 
     @IBOutlet var launchSetupAgain: NSButton!
+
+    private lazy var importDisplaySettingsButton: NSButton = {
+        let button = NSButton(
+            title: "Import Display...",
+            target: self,
+            action: #selector(importDisplaySettingsClick(_:)))
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 14)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setIcons("square.and.arrow.down")
+        return button
+    }()
+
+    private lazy var exportDisplaySettingsButton: NSButton = {
+        let button = NSButton(
+            title: "Export Display...",
+            target: self,
+            action: #selector(exportDisplaySettingsClick(_:)))
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 14)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
     var originalFormat: VideoFormat?
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -110,7 +135,36 @@ class AdvancedViewController: NSViewController {
 
         showLogButton.setIcons("folder")
         launchSetupAgain.setIcons("aspectratio")
+        setupTransferButtons()
         setupPopover()
+    }
+
+    private func setupTransferButtons() {
+        guard let containerView = showLogButton.superview else {
+            return
+        }
+
+        containerView.addSubview(exportDisplaySettingsButton)
+        containerView.addSubview(importDisplaySettingsButton)
+        NSLayoutConstraint.activate([
+            importDisplaySettingsButton.trailingAnchor.constraint(equalTo: showLogButton.leadingAnchor, constant: -8),
+            exportDisplaySettingsButton.trailingAnchor.constraint(equalTo: importDisplaySettingsButton.leadingAnchor, constant: -8),
+            exportDisplaySettingsButton.centerYAnchor.constraint(equalTo: showLogButton.centerYAnchor),
+            importDisplaySettingsButton.centerYAnchor.constraint(equalTo: showLogButton.centerYAnchor),
+            exportDisplaySettingsButton.widthAnchor.constraint(equalToConstant: 155),
+            importDisplaySettingsButton.widthAnchor.constraint(equalToConstant: 155),
+            exportDisplaySettingsButton.heightAnchor.constraint(equalTo: showLogButton.heightAnchor),
+            importDisplaySettingsButton.heightAnchor.constraint(equalTo: showLogButton.heightAnchor)
+        ])
+    }
+
+    private func refreshImportedDisplayControls() {
+        let poisp = PoiStringProvider.sharedInstance
+
+        invertColorsCheckbox.state = PrefsAdvanced.invertColors ? .on : .off
+        highQualityTextCheckbox.state = PrefsInfo.highQualityTextRendering ? .on : .off
+        favorOrientationCheckbox.state = PrefsAdvanced.favorOrientation ? .on : .off
+        languagePopup.selectItem(at: poisp.getLanguagePosition())
     }
 
     func setupPopover() {
@@ -244,6 +298,89 @@ class AdvancedViewController: NSViewController {
         }
     }
 
+    @objc func importDisplaySettingsClick(_ sender: Any) {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseDirectories = false
+        openPanel.canChooseFiles = true
+        openPanel.canCreateDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedFileTypes = ["plist"]
+        openPanel.title = "Import Aerial Display Settings"
+        openPanel.prompt = "Import"
+        openPanel.message =
+            "Select another Aerial preferences plist. Only display, overlay, brightness, " +
+            "language, and time-based presentation settings will be imported."
+        openPanel.directoryURL = DisplaySettingsImport.defaultDirectoryURL()
+
+        if let suggestedURL = DisplaySettingsImport.suggestedSourceURL() {
+            openPanel.directoryURL = suggestedURL.deletingLastPathComponent()
+            openPanel.nameFieldStringValue = suggestedURL.lastPathComponent
+        }
+
+        guard openPanel.runModal() == .OK, let sourceURL = openPanel.url else {
+            return
+        }
+
+        do {
+            let result = try DisplaySettingsImport.importDisplaySettings(from: sourceURL)
+            refreshImportedDisplayControls()
+
+            Aerial.helper.showInfoAlert(
+                title: "Display settings imported",
+                text:
+                    """
+                    Imported \(result.importedKeys.count) settings from \(result.sourceURL.lastPathComponent).
+
+                    If other settings tabs are already open, close and reopen them to refresh the controls.
+                    """)
+        } catch let error as LocalizedError {
+            Aerial.helper.showErrorAlert(
+                question: "Couldn't import display settings",
+                text: error.errorDescription ?? "An unknown error occurred while importing settings.")
+        } catch {
+            Aerial.helper.showErrorAlert(
+                question: "Couldn't import display settings",
+                text: error.localizedDescription)
+        }
+    }
+
+    @objc func exportDisplaySettingsClick(_ sender: Any) {
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.allowedFileTypes = ["plist"]
+        savePanel.title = "Export Aerial Display Settings"
+        savePanel.nameFieldStringValue = "AerialDisplaySettings.plist"
+        savePanel.prompt = "Export"
+        savePanel.message =
+            "Save the current display-related settings to a plist that can be imported on another Aerial installation."
+        savePanel.directoryURL = DisplaySettingsImport.defaultExportDirectoryURL()
+
+        guard savePanel.runModal() == .OK, let destinationURL = savePanel.url else {
+            return
+        }
+
+        do {
+            let result = try DisplaySettingsImport.exportDisplaySettings(to: destinationURL)
+
+            Aerial.helper.showInfoAlert(
+                title: "Display settings exported",
+                text:
+                    """
+                    Exported \(result.exportedKeys.count) settings to \(result.destinationURL.lastPathComponent).
+
+                    This file can be imported from the Advanced tab on another Aerial installation.
+                    """)
+        } catch let error as LocalizedError {
+            Aerial.helper.showErrorAlert(
+                question: "Couldn't export display settings",
+                text: error.errorDescription ?? "An unknown error occurred while exporting settings.")
+        } catch {
+            Aerial.helper.showErrorAlert(
+                question: "Couldn't export display settings",
+                text: error.localizedDescription)
+        }
+    }
+
     @IBAction func resetAllSettings(_ sender: NSButton) {
         if Aerial.helper.showAlert(
             question: "Reset all settings?",
@@ -309,5 +446,300 @@ class AdvancedViewController: NSViewController {
         let workspace = NSWorkspace.shared
         let url = URL(string: "https://github.com/JohnCoates/Aerial/blob/master/Documentation/HardwareDecoding.md")!
         workspace.open(url)
+    }
+}
+
+private struct DisplaySettingsImportResult {
+    let sourceURL: URL
+    let importedKeys: [String]
+}
+
+private struct DisplaySettingsExportResult {
+    let destinationURL: URL
+    let exportedKeys: [String]
+}
+
+private enum DisplaySettingsImportError: LocalizedError {
+    case unreadableSource(URL)
+    case noImportableSettings(URL)
+    case missingDestinationPreferences
+    case missingSourcePreferences
+    case invalidExportData
+    case unableToWriteExport(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableSource(let url):
+            return "The selected file could not be read as an Aerial preferences plist.\n\nFile: \(url.path)"
+        case .noImportableSettings(let url):
+            return "The selected plist did not contain any importable display settings.\n\nFile: \(url.path)"
+        case .missingDestinationPreferences:
+            return "Aerial could not open its current preferences store."
+        case .missingSourcePreferences:
+            return "Aerial could not read its current display settings."
+        case .invalidExportData:
+            return "Aerial could not serialize the current display settings for export."
+        case .unableToWriteExport(let url):
+            return "Aerial could not write the export file.\n\nFile: \(url.path)"
+        }
+    }
+}
+
+private struct DisplaySettingsImport {
+    private static let importableKeys: [String] = [
+        "newDisplayMode",
+        "newViewingMode",
+        "aspectMode",
+        "displayMarginsAdvanced",
+        "horizontalMargin",
+        "verticalMargin",
+        "advancedMargins",
+        "dimBrightness",
+        "dimOnlyAtNight",
+        "dimOnlyOnBattery",
+        "overrideDimInMinutes",
+        "startDim",
+        "endDim",
+        "dimInMinutes",
+        "layers",
+        "LayerLocation",
+        "LayerMessage",
+        "LayerClock",
+        "LayerDate",
+        "LayerBattery",
+        "LayerUpdates",
+        "LayerWeather",
+        "LayerCountdown",
+        "LayerTimer",
+        "LayerMusic",
+        "weatherWindMode",
+        "customDateFormat",
+        "customTimeFormat",
+        "fadeModeText",
+        "highQualityTextRendering",
+        "overrideMargins",
+        "hideUnderCompanion",
+        "marginX",
+        "marginY",
+        "shadowRadius",
+        "shadowOpacity",
+        "shadowOffsetX",
+        "shadowOffsetY",
+        "timeMode",
+        "manualSunrise",
+        "manualSunset",
+        "latitude",
+        "longitude",
+        "solarMode",
+        "sunEventWindow",
+        "darkModeNightOverride",
+        "invertColors",
+        "favorOrientation",
+        "ciOverrideLanguage",
+        "newDisplayDict"
+    ]
+
+    private static let legacyModule = "com.JohnCoates.Aerial"
+    private static let currentDomain = "com.glouel.Aerial"
+
+    static func defaultDirectoryURL() -> URL {
+        if let suggestedSourceURL = suggestedSourceURL() {
+            return suggestedSourceURL.deletingLastPathComponent()
+        }
+
+        let fm = FileManager.default
+        for candidate in commonPreferenceDirectories() where fm.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library", isDirectory: true)
+    }
+
+    static func defaultExportDirectoryURL() -> URL {
+        let desktopURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop", isDirectory: true)
+
+        if FileManager.default.fileExists(atPath: desktopURL.path) {
+            return desktopURL
+        }
+
+        return FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    static func suggestedSourceURL() -> URL? {
+        availableSourceURLs().max { lhs, rhs in
+            modificationDate(for: lhs) < modificationDate(for: rhs)
+        }
+    }
+
+    static func importDisplaySettings(from sourceURL: URL) throws -> DisplaySettingsImportResult {
+        guard let sourcePreferences = NSDictionary(contentsOf: sourceURL) as? [String: Any] else {
+            throw DisplaySettingsImportError.unreadableSource(sourceURL)
+        }
+
+        let importableEntries = importableKeys.compactMap { key in
+            sourcePreferences[key].map { (key, $0) }
+        }
+
+        guard !importableEntries.isEmpty else {
+            throw DisplaySettingsImportError.noImportableSettings(sourceURL)
+        }
+
+        try write(entries: importableEntries)
+
+        PrefsInfo.updateLayerList()
+        DisplayDetection.sharedInstance.detectDisplays()
+
+        return DisplaySettingsImportResult(
+            sourceURL: sourceURL,
+            importedKeys: importableEntries.map { $0.0 })
+    }
+
+    static func exportDisplaySettings(to destinationURL: URL) throws -> DisplaySettingsExportResult {
+        let exportEntries = try currentEntries()
+
+        guard !exportEntries.isEmpty else {
+            throw DisplaySettingsImportError.missingSourcePreferences
+        }
+
+        var exportDictionary = [String: Any]()
+        for (key, value) in exportEntries {
+            exportDictionary[key] = value
+        }
+
+        exportDictionary["_AerialDisplaySettingsExport"] = true
+        exportDictionary["_AerialDisplaySettingsVersion"] = 1
+
+        guard PropertyListSerialization.propertyList(exportDictionary, isValidFor: .xml) else {
+            throw DisplaySettingsImportError.invalidExportData
+        }
+
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: exportDictionary,
+            format: .xml,
+            options: 0)
+
+        do {
+            try data.write(to: destinationURL, options: .atomic)
+        } catch {
+            throw DisplaySettingsImportError.unableToWriteExport(destinationURL)
+        }
+
+        return DisplaySettingsExportResult(
+            destinationURL: destinationURL,
+            exportedKeys: exportEntries.map { $0.0 })
+    }
+
+    private static func availableSourceURLs() -> [URL] {
+        let fm = FileManager.default
+        let currentURL = activePreferencesURL().standardizedFileURL
+
+        var urls = exactPreferenceFiles().filter { fm.fileExists(atPath: $0.path) }
+
+        for directory in byHostDirectories() where fm.fileExists(atPath: directory.path) {
+            if let children = try? fm.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]) {
+                urls.append(contentsOf: children.filter {
+                    $0.pathExtension == "plist" &&
+                    ($0.lastPathComponent.hasPrefix(legacyModule) || $0.lastPathComponent.hasPrefix(currentDomain))
+                })
+            }
+        }
+
+        let uniqueURLs = Array(Set(urls.map { $0.standardizedFileURL }))
+        return uniqueURLs.filter { $0 != currentURL }
+    }
+
+    private static func exactPreferenceFiles() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let normalPrefs = home.appendingPathComponent("Library/Preferences", isDirectory: true)
+        let containerPrefs = home
+            .appendingPathComponent("Library/Containers", isDirectory: true)
+            .appendingPathComponent("com.apple.ScreenSaver.Engine.legacyScreenSaver", isDirectory: true)
+            .appendingPathComponent("Data/Library/Preferences", isDirectory: true)
+
+        return [
+            normalPrefs.appendingPathComponent("\(currentDomain).plist"),
+            normalPrefs.appendingPathComponent("\(legacyModule).plist"),
+            containerPrefs.appendingPathComponent("\(currentDomain).plist"),
+            containerPrefs.appendingPathComponent("\(legacyModule).plist")
+        ]
+    }
+
+    private static func commonPreferenceDirectories() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let normalPrefs = home.appendingPathComponent("Library/Preferences", isDirectory: true)
+        let containerPrefs = home
+            .appendingPathComponent("Library/Containers", isDirectory: true)
+            .appendingPathComponent("com.apple.ScreenSaver.Engine.legacyScreenSaver", isDirectory: true)
+            .appendingPathComponent("Data/Library/Preferences", isDirectory: true)
+
+        return [
+            normalPrefs,
+            normalPrefs.appendingPathComponent("ByHost", isDirectory: true),
+            containerPrefs,
+            containerPrefs.appendingPathComponent("ByHost", isDirectory: true)
+        ]
+    }
+
+    private static func byHostDirectories() -> [URL] {
+        commonPreferenceDirectories().filter { $0.lastPathComponent == "ByHost" }
+    }
+
+    private static func activePreferencesURL() -> URL {
+        URL(fileURLWithPath: Aerial.helper.getPreferencesDirectory(), isDirectory: true)
+            .appendingPathComponent("\(currentDomain).plist")
+    }
+
+    private static func currentEntries() throws -> [(String, Any)] {
+        let preferences: [String: Any]
+
+        if #available(OSX 10.15, *) {
+            guard let defaults = UserDefaults(suiteName: Aerial.helper.getPreferencesDirectory() + currentDomain) else {
+                throw DisplaySettingsImportError.missingSourcePreferences
+            }
+
+            preferences = defaults.dictionaryRepresentation()
+        } else {
+            guard let defaults = ScreenSaverDefaults(forModuleWithName: legacyModule) else {
+                throw DisplaySettingsImportError.missingSourcePreferences
+            }
+
+            preferences = defaults.dictionaryRepresentation()
+        }
+
+        return importableKeys.compactMap { key in
+            preferences[key].map { (key, $0) }
+        }
+    }
+
+    private static func modificationDate(for url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    }
+
+    private static func write(entries: [(String, Any)]) throws {
+        if #available(OSX 10.15, *) {
+            guard let defaults = UserDefaults(suiteName: Aerial.helper.getPreferencesDirectory() + currentDomain) else {
+                throw DisplaySettingsImportError.missingDestinationPreferences
+            }
+
+            for (key, value) in entries {
+                defaults.set(value, forKey: key)
+            }
+
+            defaults.synchronize()
+        } else {
+            guard let defaults = ScreenSaverDefaults(forModuleWithName: legacyModule) else {
+                throw DisplaySettingsImportError.missingDestinationPreferences
+            }
+
+            for (key, value) in entries {
+                defaults.set(value, forKey: key)
+            }
+
+            defaults.synchronize()
+        }
     }
 }
