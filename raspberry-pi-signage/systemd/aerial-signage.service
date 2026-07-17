@@ -1,0 +1,22 @@
+# aerial-signage needs a console VT that owns DRM/KMS. Configure Raspberry Pi OS
+# to boot to console, not the desktop compositor, for HEVC hardware decode.
+[Unit]
+Description=Aerial Signage Player
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=3
+User=__AERIAL_USER__
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+Environment=AERIAL_CONFIG=/etc/aerial-signage/aerial-signage.conf
+SupplementaryGroups=video render input tty
+ExecStart=/opt/aerial-signage/bin/aerial-signage
+
+[Install]
+WantedBy=multi-user.target

@@ -26,6 +26,13 @@ Aerial は完全にオープンソースで、開発への貢献を歓迎しま�
 - 例: `AERIAL_CLOCK_OFFSET_MINUTES=-540`
 - 未設定または不正値時の挙動: `10` 分を既定値として使用（このForkの現行既定動作）
 
+## Raspberry Pi デジタルサイネージ
+
+本 Fork には、Apple Aerial 動画を全画面ループ再生し、同じオフセット時計
+（`AERIAL_CLOCK_OFFSET_MINUTES`）を重畳する Linux / Raspberry Pi 4・5 向けサイネージプレーヤーも
+含まれています。macOS スクリーンセーバー基盤ではなく `mpv`（HEVC ハードウェアデコード）を使います。
+詳細は [`raspberry-pi-signage/`](./raspberry-pi-signage/README.ja.md) を参照してください。
+
 Aerial は 2.3.0 以降、[OpenWeather](https://openweathermap.org) の提供により、現在の天気と予報の表示にも対応しています。
 
 ![openweather_logo](https://user-images.githubusercontent.com/37544189/115738975-d689bf80-a38d-11eb-809b-fbb019e6ed08.png)

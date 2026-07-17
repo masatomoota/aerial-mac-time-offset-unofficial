@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh Aerial Signage Video Cache
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=AERIAL_CONFIG=/etc/aerial-signage/aerial-signage.conf
+ExecStart=/opt/aerial-signage/bin/aerial-fetch

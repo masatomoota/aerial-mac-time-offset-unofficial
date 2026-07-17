@@ -26,6 +26,13 @@ This repository is used **solely** for development.
 - Example: `AERIAL_CLOCK_OFFSET_MINUTES=-540`
 - Behavior when unset or invalid: defaults to `10` minutes (same behavior as this fork's current default)
 
+## Raspberry Pi digital signage
+
+This fork also includes a Linux/Raspberry Pi 4-5 digital-signage player that loops Apple Aerial
+videos fullscreen with the same offset clock (`AERIAL_CLOCK_OFFSET_MINUTES`). It uses `mpv` with
+hardware HEVC decode instead of the macOS screensaver stack. See
+[`raspberry-pi-signage/`](./raspberry-pi-signage/README.md).
+
 Starting with version 2.3.0, Aerial can now display current weather information *and* forecasts to your location, thanks to [OpenWeather](https://openweathermap.org). 
 
 ![openweather_logo](https://user-images.githubusercontent.com/37544189/115738975-d689bf80-a38d-11eb-809b-fbb019e6ed08.png)

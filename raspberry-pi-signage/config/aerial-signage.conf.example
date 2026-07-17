@@ -1,0 +1,48 @@
+# aerial-signage configuration.
+# Copy to /etc/aerial-signage/aerial-signage.conf and edit for your display.
+
+# --- Clock overlay ---
+AERIAL_CLOCK_ENABLED=1
+# Minutes added to real time. Can be negative, e.g. -540.
+AERIAL_CLOCK_OFFSET_MINUTES=10
+# 24h | 12h | custom
+AERIAL_CLOCK_FORMAT=24h
+# 1=show seconds
+AERIAL_CLOCK_SECONDS=0
+# 1=hide AM/PM, only relevant for 12h
+AERIAL_CLOCK_HIDE_AMPM=0
+# strftime format used only when AERIAL_CLOCK_FORMAT=custom
+AERIAL_CLOCK_CUSTOM_FORMAT=%H:%M
+# topLeft | topRight | bottomLeft | bottomRight | center
+AERIAL_CLOCK_CORNER=bottomRight
+# ASS font size at a 1920x1080 reference resolution
+AERIAL_CLOCK_FONT_SIZE=48
+# Optional font family name. Empty uses mpv default.
+AERIAL_CLOCK_FONT=
+# Pixel margin from screen edges at a 1920x1080 reference resolution
+AERIAL_CLOCK_MARGIN=60
+# RRGGBB text color. Lua converts this to ASS BGR internally.
+AERIAL_CLOCK_COLOR=FFFFFF
+
+# --- Video source ---
+# 1080-sdr | 1080-hdr | 4k-sdr | 4k-hdr | 1080-h264
+# HEVC is the default because both Pi 4 and Pi 5 hardware-decode 4K HEVC.
+AERIAL_QUALITY=1080-sdr
+# Default = the real Apple Aerial set (63 videos, streamed from sylvan.apple.com).
+# Alternative community set (GitHub-hosted, ~20 donated videos, very stable):
+#   https://raw.githubusercontent.com/glouel/AerialCommunity/master/entries.json
+AERIAL_MANIFEST_URL=https://raw.githubusercontent.com/kopiro/xscreensaver-apple-aerial/main/entries.json
+AERIAL_CACHE_DIR=/var/lib/aerial-signage/videos
+AERIAL_PLAYLIST=/var/lib/aerial-signage/playlist.txt
+# 0=all, N=only first N to save disk during setup
+AERIAL_VIDEO_LIMIT=0
+AERIAL_SHUFFLE=1
+
+# --- mpv / display ---
+AERIAL_MPV_VO=gpu
+# drm on a Pi console; set auto to test on a desktop or macOS.
+AERIAL_MPV_GPU_CONTEXT=drm
+# drm-copy for HEVC hardware decode on Pi; set auto for desktop testing.
+AERIAL_MPV_HWDEC=drm-copy
+# Extra raw mpv flags. Keep paths without spaces; the launcher parses this as words.
+AERIAL_MPV_EXTRA=
