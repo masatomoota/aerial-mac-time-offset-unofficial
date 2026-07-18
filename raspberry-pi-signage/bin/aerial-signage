@@ -18,8 +18,31 @@ if [[ -z "$config_file" ]]; then
 fi
 
 if [[ -n "$config_file" && -f "$config_file" ]]; then
+  # The same file is parsed by bin/aerial-fetch, so only plain KEY=VALUE lines
+  # are supported. The whole line must be a single safe assignment: a quoted
+  # value, or an unquoted value without whitespace/shell metacharacters,
+  # optionally followed by a comment. Anything else (spaces around '=',
+  # 'KEY=x; cmd', 'KEY=x cmd', command substitution) is refused with a clear
+  # error instead of being executed by `source` or silently diverging between
+  # the two parsers.
+  assign_re="^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|[^[:space:]\"'\`;&|<>]*)([[:space:]]+#.*)?[[:space:]]*$"
+  while IFS= read -r line; do
+    if [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+    # shellcheck disable=SC2016  # literal '$(' is intentional: we reject command substitution
+    if [[ ! "$line" =~ $assign_re ]] || [[ "$line" == *'$('* || "$line" == *'`'* ]]; then
+      printf 'Invalid config line in %s: %s\n' "$config_file" "$line" >&2
+      printf 'Only single KEY=VALUE assignments are supported (quote values containing spaces; no command substitution).\n' >&2
+      exit 1
+    fi
+  done < "$config_file"
+  # Source with -u relaxed so an unset $VAR expands to empty (bash's normal
+  # expansion) instead of aborting; bin/aerial-fetch's parser does the same.
+  set +u
   # shellcheck source=/dev/null
   . "$config_file"
+  set -u
 fi
 
 : "${AERIAL_CLOCK_ENABLED:=1}"
@@ -38,6 +61,7 @@ fi
 : "${AERIAL_CACHE_DIR:=/var/lib/aerial-signage/videos}"
 : "${AERIAL_PLAYLIST:=/var/lib/aerial-signage/playlist.txt}"
 : "${AERIAL_VIDEO_LIMIT:=0}"
+: "${AERIAL_STRICT_QUALITY:=0}"
 : "${AERIAL_SHUFFLE:=1}"
 : "${AERIAL_MPV_VO:=gpu}"
 : "${AERIAL_MPV_GPU_CONTEXT:=drm}"

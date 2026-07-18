@@ -43,7 +43,7 @@ video_dir="$state_dir/videos"
 tmp_files=()
 cleanup() {
   local tmp
-  for tmp in "${tmp_files[@]}"; do
+  for tmp in ${tmp_files[@]+"${tmp_files[@]}"}; do
     rm -f -- "$tmp"
   done
 }
@@ -66,6 +66,10 @@ apt-get install -y mpv python3
 printf 'Installing files to %s...\n' "$install_dir"
 install -d -m 0755 "$install_dir"
 cp -a "$script_dir/bin" "$script_dir/lua" "$script_dir/manifest" "$install_dir/"
+# cp -a preserves the invoking user's ownership. The fetch timer executes this
+# code, so it must be root-owned and not writable by the signage user.
+chown -R root:root "$install_dir"
+chmod -R go-w "$install_dir"
 chmod +x "$install_dir"/bin/*
 
 printf 'Preparing state and config directories...\n'
@@ -92,7 +96,7 @@ fi
 
 printf 'Installing systemd units...\n'
 render_unit "$script_dir/systemd/aerial-signage.service" "/etc/systemd/system/aerial-signage.service"
-install -m 0644 "$script_dir/systemd/aerial-fetch.service" "/etc/systemd/system/aerial-fetch.service"
+render_unit "$script_dir/systemd/aerial-fetch.service" "/etc/systemd/system/aerial-fetch.service"
 install -m 0644 "$script_dir/systemd/aerial-fetch.timer" "/etc/systemd/system/aerial-fetch.timer"
 systemctl daemon-reload
 systemctl enable aerial-signage.service aerial-fetch.timer

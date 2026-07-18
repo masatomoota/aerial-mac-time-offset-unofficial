@@ -21,10 +21,18 @@
 - All dev-machine checks pass; the actual Lua clock ran under real mpv and produced the correct
   offset time end-to-end.
 
+## Session 2 (Pi 3 + bug review)
+
+- [x] Wave 6: `AERIAL_STRICT_QUALITY` (Pi 3 H.264 strict mode) + `--[no-]strict-quality` + docs
+- [x] Wave 7: Multi-agent review (codex + 4 sonnet finders + verifiers) — 9 confirmed findings
+- [x] Wave 8: Fix all confirmed findings (+3 residual issues codex found in the fixes), add
+      regression tests, re-verify, sync to GitHub
+
 ## Follow-up (needs real Pi hardware)
 
 - [ ] Run `install.sh` on Pi 4 and Pi 5; confirm aerial loop + offset clock on tty1 after reboot.
 - [ ] Confirm HEVC hardware decode engages (`drm-copy`; else `v4l2m2m-copy`), no dropped frames.
-- [ ] Tune `systemd/aerial-signage.service` for reliable DRM/KMS ownership on boot (possible
-      `Conflicts=getty@tty1.service` / autologin + user service).
+- [ ] Confirm the `Conflicts=getty@tty1.service` handoff works on boot (unit now includes it +
+      TTY reset options; still unvalidated on hardware).
+- [ ] Pi 3: validate the `1080-h264` + `AERIAL_STRICT_QUALITY=1` + `hwdec=v4l2m2m-copy` path.
 - [ ] Validate full-size Apple downloads over the network; drop `--limit` for the full set.

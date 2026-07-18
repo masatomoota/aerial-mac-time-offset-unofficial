@@ -77,8 +77,22 @@ container `.mov`, served from `https://sylvan.apple.com/...`.
 
 These are inherently hardware-specific and could NOT be tested on macOS:
 1. HEVC **hardware** decode via `--hwdec=drm-copy` on Pi 4 / Pi 5 (dropped-frame / thermal behavior).
-2. **DRM/KMS on tty1** ownership from the systemd unit — the `aerial-signage.service` may need tuning
-   (e.g. `Conflicts=getty@tty1.service`, or an autologin-on-tty1 + user-service approach) so mpv
-   reliably becomes DRM master on boot.
+2. **DRM/KMS on tty1** ownership from the systemd unit — `aerial-signage.service` now ships the
+   standard kiosk pattern (`Conflicts=getty@tty1.service`, `After=getty@tty1.service`,
+   `TTYReset/TTYVHangup/TTYVTDisallocate=yes`), but the boot-time handoff still needs confirming
+   on a real Pi.
 3. Boot-to-console autologin interaction (`raspi-config nonint do_boot_behaviour B2`).
 4. Full-size (265–354 MB) Apple video downloads over the real network.
+5. **Pi 3** (experimental): the `AERIAL_QUALITY=1080-h264` + `AERIAL_STRICT_QUALITY=1` +
+   `AERIAL_MPV_HWDEC=v4l2m2m-copy` path (stateful V4L2 H.264 decode on Bookworm).
+
+## Bug review (2026-07-18, pre-hardware)
+
+Before hardware testing, the codebase went through three independent review streams (codex CLI
+full review, a 4-dimension sonnet finder/verifier workflow, and a codex re-review of the fix
+diff). All confirmed findings were fixed with regression tests — see `tasks/handoff.md`
+("Session 2") for the itemized list. Highlights: /opt ownership normalization (root-executed code
+must not be user-writable), `User=` on the fetch unit, getty@tty1 conflict handling, strict
+config-line validation before bash `source` (rejects shell injection in the conf), bash-parity
+config parsing in Python (inline comments, quoted values, $VAR scope expansion), manifest-shape
+fallback, and per-URL download error isolation.

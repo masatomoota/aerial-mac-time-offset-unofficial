@@ -1,5 +1,61 @@
 # Handoff — Raspberry Pi Aerial Digital Signage
 
+> **Update (2026-07-18, second session):** After the initial release, a Pi 3 compatibility mode and
+> a full multi-agent bug review + fixes were added. See "Session 2: Pi 3 support & bug review"
+> below. The original handoff follows it and remains accurate except where noted.
+
+## Session 2: Pi 3 support & bug review
+
+### Pi 3 support (`AERIAL_STRICT_QUALITY`)
+
+- Pi 3 (VideoCore IV) has **no HEVC decode**, H.264 HW decode up to 1080p only, 1080p HDMI, and
+  cannot software-decode HEVC. Supported config (documented in both READMEs, "Raspberry Pi 3"):
+  `AERIAL_QUALITY=1080-h264`, `AERIAL_STRICT_QUALITY=1`, `AERIAL_MPV_HWDEC=v4l2m2m-copy`.
+- `AERIAL_STRICT_QUALITY=1` makes `aerial-fetch` use ONLY the exact quality variant (no codec
+  fallback — otherwise a missing H.264 variant would silently download an unplayable HEVC file).
+  CLI: `--strict-quality` / `--no-strict-quality` (argparse BooleanOptionalAction, tri-state so the
+  CLI can override config/env in both directions).
+- All 63 entries in the bundled Apple manifest have `url-1080-H264`, so Pi 3 gets the full set.
+- The `v4l2m2m` H.264 path on Bookworm is **not yet validated on real Pi 3 hardware**.
+
+### Bug review (before hardware testing)
+
+Three independent review streams, all findings adjudicated by the manager model against the code:
+1. codex CLI full-code review (free) — report at scratchpad `review/REPORT_REVIEW_CODEX.md`.
+2. Workflow: 4 sonnet finder agents (python/shell/lua/system dimensions) + per-finding sonnet
+   verifiers — 9 confirmed findings.
+3. codex re-reviews of the fix diffs — found 4 residual issues across two passes (injection via
+   `KEY=x; cmd` lines, quotes kept on `KEY="v" # comment`, $VAR not resolving earlier same-file
+   assignments, unset-$VAR divergence under `set -u`); all fixed. Final state: both parsers
+   expand unset variables to empty, exactly like bash.
+
+**Fixes applied (all with regression tests where testable):**
+- `install.sh`: normalize `/opt/aerial-signage` to root-owned, `go-w` (was: `cp -a` preserved the
+  invoking user's ownership → user-writable code executed by root via the timer). Renders BOTH
+  systemd units now. Empty-array guard in `cleanup()`.
+- `systemd/aerial-fetch.service`: `User=__AERIAL_USER__` (was: ran as root, re-owning the cache).
+- `systemd/aerial-signage.service`: `Conflicts=getty@tty1.service`, `After=getty@tty1.service`,
+  `TTYReset/TTYVHangup/TTYVTDisallocate=yes` (kiosk takes tty1 from the login getty).
+- `bin/aerial-signage`: validates every config line against a strict full-line assignment regex
+  before `source` — rejects `KEY = v`, `KEY=x; cmd`, `KEY=x cmd`, `$(...)`, backticks, stray text
+  after quoted values, with a clear error (was: cryptic crash or arbitrary execution).
+- `bin/aerial-fetch` `parse_key_value_config`: bash-parity — strips whitespace-preceded `#`
+  comments (incl. after a closing quote), keeps `#` inside quotes, expands `$VAR`/`${VAR}` against
+  earlier same-file assignments then the environment (not inside single quotes; unknown vars stay
+  literal), skips lines the launcher would refuse (with warnings).
+- `bin/aerial-fetch` `load_manifest`: schema validation (`normalize_entries`) now INSIDE the
+  fallback try — a wrong-shaped remote JSON (e.g. rate-limit body) now falls back to the bundled
+  manifest instead of aborting. Returns entries directly.
+- `bin/aerial-fetch` `download_one`: catches `filename_for_url` ValueError → logs and skips that
+  URL (was: one bad URL aborted the whole run before the playlist was written).
+- `lua/aerial_clock.lua` / `clock-overlay.lua`: `math.floor` on epoch and margin so fractional
+  config values cannot break `os.date`/`%d` on integer-checking Lua builds.
+- `docs/linux-aerial-repo-analysis.md`: marked historical (its H.264-first advice was written under
+  a wrong premise; DESIGN_AND_RESEARCH.md is authoritative).
+
+Verification after fixes: 11 python tests + lua tests pass, shellcheck clean, 5 injection vectors
+rejected with no side effects, bash/python config parity spot-checked on shared files.
+
 ## Summary
 
 Added a **Linux / Raspberry Pi 4-5 digital-signage player** to this fork under

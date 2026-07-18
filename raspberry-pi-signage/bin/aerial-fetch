@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -21,7 +22,12 @@ DEFAULTS = {
     "AERIAL_CACHE_DIR": "/var/lib/aerial-signage/videos",
     "AERIAL_PLAYLIST": "/var/lib/aerial-signage/playlist.txt",
     "AERIAL_VIDEO_LIMIT": "0",
+    "AERIAL_STRICT_QUALITY": "0",
 }
+
+
+def is_truthy(value: str) -> bool:
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 QUALITY_KEYS = {
     "1080-sdr": "url-1080-SDR",
@@ -46,25 +52,68 @@ def bundled_manifest_path() -> Path:
     return script_root() / "manifest" / "entries.json"
 
 
+CONFIG_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+CONFIG_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _expand_config_value(value: str, scope: Dict[str, str]) -> str:
+    """Expand $VAR/${VAR} against earlier config assignments, then the
+    process environment. Unknown variables expand to empty, exactly like
+    bash expansion when bin/aerial-signage sources the same file."""
+
+    def replace(match: "re.Match[str]") -> str:
+        name = match.group(1) or match.group(2)
+        if name in scope:
+            return scope[name]
+        return os.environ.get(name, "")
+
+    return CONFIG_VAR_RE.sub(replace, value)
+
+
 def parse_key_value_config(path: Path) -> Dict[str, str]:
+    """Parse the KEY=VALUE config the same way bash `source` reads assignments.
+
+    bin/aerial-signage sources the same file (after validating each line is a
+    single safe assignment), so the two parsers must agree: no whitespace
+    around `=`, a whitespace-preceded `#` starts a comment, matching outer
+    quotes are stripped (with an optional trailing comment after the closing
+    quote), and $VAR references are expanded against earlier assignments and
+    the environment (except inside single quotes). Lines the launcher would
+    refuse are skipped with a warning instead of being misread.
+    """
     values: Dict[str, str] = {}
     if not path.exists():
         return values
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+        if not line or line.startswith("#"):
             continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if not key or not key.replace("_", "").isalnum():
+        match = CONFIG_LINE_RE.match(line)
+        if match is None:
+            log(f"ignoring config line (not KEY=VALUE): {line!r}")
             continue
-        if (value.startswith('"') and value.endswith('"')) or (
-            value.startswith("'") and value.endswith("'")
-        ):
-            value = value[1:-1]
-        values[key] = value
+        key, value = match.group(1), match.group(2).strip()
+        expand = True
+        if value[:1] in ("'", '"'):
+            quote = value[0]
+            end = value.find(quote, 1)
+            rest = value[end + 1 :].strip() if end != -1 else None
+            if end == -1 or (rest and not rest.startswith("#")):
+                log(f"ignoring config line (unsupported quoting): {line!r}")
+                continue
+            if quote == "'":
+                expand = False
+            value = value[1:end]
+        else:
+            # bash treats a whitespace-preceded # as a comment start.
+            value = re.split(r"\s#", value, maxsplit=1)[0].strip()
+            if re.search(r"\s", value):
+                # 'KEY=a b' is not a plain assignment in bash; the launcher
+                # refuses it, so skip it here too instead of diverging.
+                log(f"ignoring config line (unquoted whitespace): {line!r}")
+                continue
+        values[key] = _expand_config_value(value, values) if expand else value
     return values
 
 
@@ -84,6 +133,7 @@ def merged_config(args: argparse.Namespace) -> Dict[str, str]:
         "AERIAL_CACHE_DIR": args.cache_dir,
         "AERIAL_PLAYLIST": args.playlist,
         "AERIAL_VIDEO_LIMIT": str(args.limit) if args.limit is not None else None,
+        "AERIAL_STRICT_QUALITY": None if args.strict_quality is None else ("1" if args.strict_quality else "0"),
     }
     for key, value in overrides.items():
         if value is not None:
@@ -109,9 +159,12 @@ def quality_to_key(quality: str) -> str:
         raise ValueError(f"unknown quality {quality!r}; expected one of: {valid}") from exc
 
 
-def select_variant(entry: Dict[str, Any], quality: str) -> Optional[Tuple[str, str]]:
+def select_variant(entry: Dict[str, Any], quality: str, strict: bool = False) -> Optional[Tuple[str, str]]:
     chosen = quality_to_key(quality)
-    keys = [chosen] + [key for key in FALLBACK_KEYS if key != chosen]
+    if strict:
+        keys = [chosen]
+    else:
+        keys = [chosen] + [key for key in FALLBACK_KEYS if key != chosen]
     for key in keys:
         value = entry.get(key)
         if isinstance(value, str) and value:
@@ -119,10 +172,12 @@ def select_variant(entry: Dict[str, Any], quality: str) -> Optional[Tuple[str, s
     return None
 
 
-def select_urls(entries: Iterable[Dict[str, Any]], quality: str, limit: int = 0) -> List[str]:
+def select_urls(
+    entries: Iterable[Dict[str, Any]], quality: str, limit: int = 0, strict: bool = False
+) -> List[str]:
     urls: List[str] = []
     for entry in entries:
-        selected = select_variant(entry, quality)
+        selected = select_variant(entry, quality, strict)
         if selected is None:
             continue
         urls.append(selected[1])
@@ -131,8 +186,8 @@ def select_urls(entries: Iterable[Dict[str, Any]], quality: str, limit: int = 0)
     return urls
 
 
-def dry_run_urls(manifest: Any, quality: str, limit: int = 0) -> List[str]:
-    return select_urls(normalize_entries(manifest), quality, limit)
+def dry_run_urls(manifest: Any, quality: str, limit: int = 0, strict: bool = False) -> List[str]:
+    return select_urls(normalize_entries(manifest), quality, limit, strict)
 
 
 def fetch_url(url: str, timeout: int = 45) -> bytes:
@@ -144,16 +199,17 @@ def fetch_url(url: str, timeout: int = 45) -> bytes:
         return response.read()
 
 
-def load_manifest(manifest_url: str) -> Tuple[Any, str]:
+def load_manifest(manifest_url: str) -> Tuple[List[Dict[str, Any]], str]:
     try:
         data = fetch_url(manifest_url)
+        entries = normalize_entries(json.loads(data.decode("utf-8")))
         log(f"using remote manifest {manifest_url}")
-        return json.loads(data.decode("utf-8")), manifest_url
-    except Exception as exc:  # noqa: BLE001 - CLI must fall back on any fetch/parse failure.
+        return entries, manifest_url
+    except Exception as exc:  # noqa: BLE001 - fall back on any fetch/parse/schema failure.
         fallback = bundled_manifest_path()
         log(f"remote manifest failed ({exc}); using bundled fallback {fallback}")
         with fallback.open("r", encoding="utf-8") as handle:
-            return json.load(handle), str(fallback)
+            return normalize_entries(json.load(handle)), str(fallback)
 
 
 def filename_for_url(url: str) -> str:
@@ -176,7 +232,11 @@ def fsync_directory(path: Path) -> None:
 
 
 def download_one(url: str, cache_dir: Path) -> Optional[Path]:
-    name = filename_for_url(url)
+    try:
+        name = filename_for_url(url)
+    except ValueError as exc:
+        log(f"skipping URL ({exc})")
+        return None
     final_path = cache_dir / name
     part_path = cache_dir / f"{name}.part"
 
@@ -249,6 +309,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir")
     parser.add_argument("--playlist")
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--strict-quality",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="only use the exact quality variant; never fall back to another codec (for Pi 3 use 1080-h264). --no-strict-quality overrides a config/env setting",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print selected URLs without writing files")
     parser.add_argument("--print-manifest", action="store_true", help="fetch manifest and print entry count")
     return parser
@@ -258,14 +324,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     cfg = merged_config(args)
     limit = parse_limit(cfg["AERIAL_VIDEO_LIMIT"])
+    strict = is_truthy(cfg["AERIAL_STRICT_QUALITY"])
 
     try:
-        manifest, source = load_manifest(cfg["AERIAL_MANIFEST_URL"])
-        entries = normalize_entries(manifest)
-        urls = select_urls(entries, cfg["AERIAL_QUALITY"], limit)
+        entries, source = load_manifest(cfg["AERIAL_MANIFEST_URL"])
+        urls = select_urls(entries, cfg["AERIAL_QUALITY"], limit, strict)
     except Exception as exc:  # noqa: BLE001 - CLI reports any configuration/manifest issue.
         log(str(exc))
         return 2
+
+    if strict and limit == 0 and len(urls) < len(entries):
+        log(
+            f"strict quality {cfg['AERIAL_QUALITY']}: {len(urls)} of {len(entries)} entries have that variant"
+        )
 
     if args.print_manifest:
         print(f"{len(entries)} entries from {source}")

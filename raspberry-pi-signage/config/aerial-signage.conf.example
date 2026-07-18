@@ -36,6 +36,10 @@ AERIAL_CACHE_DIR=/var/lib/aerial-signage/videos
 AERIAL_PLAYLIST=/var/lib/aerial-signage/playlist.txt
 # 0=all, N=only first N to save disk during setup
 AERIAL_VIDEO_LIMIT=0
+# 1=only download the exact AERIAL_QUALITY variant and never fall back to another
+# codec. Set to 1 on Raspberry Pi 3 together with AERIAL_QUALITY=1080-h264,
+# because Pi 3 has no HEVC hardware decode and cannot play the HEVC fallbacks.
+AERIAL_STRICT_QUALITY=0
 AERIAL_SHUFFLE=1
 
 # --- mpv / display ---

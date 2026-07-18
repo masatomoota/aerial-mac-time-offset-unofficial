@@ -2,8 +2,10 @@
 # to boot to console, not the desktop compositor, for HEVC hardware decode.
 [Unit]
 Description=Aerial Signage Player
-After=network-online.target
+After=network-online.target getty@tty1.service
 Wants=network-online.target
+# Take tty1 over from the login getty so mpv gets clean DRM/KMS ownership.
+Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
@@ -11,6 +13,9 @@ Restart=always
 RestartSec=3
 User=__AERIAL_USER__
 TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal

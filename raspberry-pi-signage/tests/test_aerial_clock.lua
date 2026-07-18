@@ -32,6 +32,13 @@ assert_equal(
   "12h hide ampm"
 )
 
+-- fractional epochs (e.g. AERIAL_CLOCK_OFFSET_MINUTES=0.5) must not break os.date
+assert_equal(
+  clock.format_time(epoch(2026, 1, 1, 3, 4, 5) + 0.9, { format = "24h", seconds = true }),
+  "03:04:05",
+  "fractional epoch floored"
+)
+
 assert_equal(clock.alignment_for("topLeft"), 7, "topLeft")
 assert_equal(clock.alignment_for("topRight"), 9, "topRight")
 assert_equal(clock.alignment_for("bottomLeft"), 1, "bottomLeft")

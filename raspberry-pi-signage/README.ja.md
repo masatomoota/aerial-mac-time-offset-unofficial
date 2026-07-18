@@ -39,11 +39,29 @@ sudo reboot
 | `AERIAL_CACHE_DIR` | `.mov` の保存先。 | `/var/lib/aerial-signage/videos` |
 | `AERIAL_PLAYLIST` | `aerial-fetch` が生成する mpv プレイリスト。 | `/var/lib/aerial-signage/playlist.txt` |
 | `AERIAL_VIDEO_LIMIT` | `0` は全件、`N` は先頭 `N` 件のみ。 | `0` |
+| `AERIAL_STRICT_QUALITY` | `1` で `AERIAL_QUALITY` の完全一致のみ取得し、他コーデックへフォールバックしない（Pi 3 で使用）。 | `0` |
 | `AERIAL_SHUFFLE` | `1` でシャッフル再生。 | `1` |
 | `AERIAL_MPV_VO` | mpv の video output。 | `gpu` |
 | `AERIAL_MPV_GPU_CONTEXT` | Pi のコンソールでは `drm`。デスクトップ検証では `auto`。 | `drm` |
 | `AERIAL_MPV_HWDEC` | Pi の HEVC ハードウェアデコードでは `drm-copy`。デスクトップ検証では `auto`。 | `drm-copy` |
 | `AERIAL_MPV_EXTRA` | 追加の mpv フラグ。 | 空 |
+
+## Raspberry Pi 3（実験的対応）
+
+Pi 3（VideoCore IV）には **HEVC ハードウェアデコードが無く**、H.264 ハードウェアデコードは 1080p
+まで、HDMI 出力も 1080p まで、CPU での HEVC ソフトデコードも実時間では不可能です。そのため既定の
+HEVC 画質は動作しません。H.264 版を厳格モードで使ってください（HEVC への暗黙フォールバックを防ぎ
+ます）:
+
+```
+AERIAL_QUALITY=1080-h264
+AERIAL_STRICT_QUALITY=1
+AERIAL_MPV_HWDEC=v4l2m2m-copy
+```
+
+補足: Raspberry Pi OS **Lite** ならメモリ 1GB で足ります。24 時間運用ではヒートシンクを付けて
+ください。Bookworm 上の `v4l2m2m` H.264 経路は Pi 3 実機で未検証のため実験的扱いです。新規購入
+なら Pi 4/5 を推奨します。
 
 ## 動画ソース
 

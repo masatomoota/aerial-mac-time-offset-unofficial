@@ -5,5 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# Run as the signage user so cache/playlist files stay owned by the same user
+# that aerial-signage.service reads them as (install.sh substitutes this).
+User=__AERIAL_USER__
 Environment=AERIAL_CONFIG=/etc/aerial-signage/aerial-signage.conf
 ExecStart=/opt/aerial-signage/bin/aerial-fetch

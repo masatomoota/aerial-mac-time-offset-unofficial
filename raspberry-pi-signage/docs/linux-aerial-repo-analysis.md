@@ -1,5 +1,12 @@
 # REPORT A: Linux Aerial Reuse Investigation for Raspberry Pi Signage
 
+> **Historical document — codec advice superseded.** The H.264-first recommendations below were
+> written under an incorrect premise about Pi hardware decoding. Verified facts: **both Pi 4 and
+> Pi 5 hardware-decode 4K HEVC**, Pi 5 has no H.264 hardware decoder, and this project therefore
+> defaults to HEVC. See [DESIGN_AND_RESEARCH.md](./DESIGN_AND_RESEARCH.md) (authoritative). The
+> repository analysis (sections 1-2) and the mpv-over-xscreensaver architecture conclusion remain
+> valid.
+
 Date: 2026-07-18  
 Scope: All work was done inside this scratch directory. The primary repo was shallow-cloned from `https://github.com/graysky2/xscreensaver-aerial.git` at commit `0429d174ba047ff2bba857aea85dc056c5161ce3`.
 

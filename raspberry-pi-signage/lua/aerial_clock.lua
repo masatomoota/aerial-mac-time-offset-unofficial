@@ -10,6 +10,9 @@ end
 
 function M.format_time(now_epoch, cfg)
   cfg = cfg or {}
+  -- Fractional offsets/epochs must not reach os.date: Lua 5.3+ builds raise
+  -- "number has no integer representation" for non-integer arguments.
+  now_epoch = math.floor(now_epoch)
   local mode = cfg.format or "24h"
   local seconds = bool_value(cfg.seconds)
   local hide_ampm = bool_value(cfg.hide_ampm)
