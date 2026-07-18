@@ -15,18 +15,20 @@ normalizing macOS DisplaySettings plist values, Windows UI values, and native
 | screen center | `InfoCorner 6=screenCenter` | `middle` | `screenCenter` (`center` legacy alias) |
 | random | `InfoCorner 7=random` | `random` | `random` |
 | absolute top right | `InfoCorner 8=absTopRight` | `topright` fallback | `absTopRight` |
-| clock default | `InfoClockFormat 0=tdefault` | `time` line default `hh:mm:ss` | `24h` |
-| 24 hour clock | `InfoClockFormat 1=t24hours` | custom `HH:mm`-style string | `24h` |
-| 12 hour clock | `InfoClockFormat 2=t12hours` | custom `hh:mm A`-style string | `12h` |
-| custom clock | `InfoClockFormat 3=custom` | custom `timeString` | `custom` + `AERIAL_CLOCK_CUSTOM_FORMAT` |
-| textual date | `InfoDate 0=textual` | custom `timeString` | `textual` |
-| compact date | `InfoDate 1=compact` | custom `timeString` | `compact` (`numeric` legacy alias) |
-| custom date | `InfoDate 2=custom` | custom `timeString` | `custom` + `AERIAL_DATE_CUSTOM_FORMAT` |
-| video label | Windows `information/accessibilityLabel` | `accessibilityLabel` | `AERIAL_LOC_MODE=accessibilityLabel` |
-| video name | Windows `information/name` | `name` | `AERIAL_LOC_MODE=name` |
-| location information | Windows `information/poi` | `poi` | `AERIAL_LOC_MODE=poi` |
-| filename fallback | none | none | `AERIAL_LOC_MODE=filename` |
+| clock/time-date line | Windows `displayText[position][line].type=time` | `timeString` Moment format | `AERIAL_LINE{n}_TYPE=timedate`, `AERIAL_LINE{n}_FORMAT` |
+| video label | Windows `information/accessibilityLabel` | `accessibilityLabel` | `AERIAL_LINE{n}_TYPE=information`, `AERIAL_LINE{n}_INFO_MODE=accessibilityLabel` |
+| video name | Windows `information/name` | `name` | `AERIAL_LINE{n}_TYPE=videoname` |
+| location information | Windows `information/poi` | `poi` | `AERIAL_LINE{n}_TYPE=information`, `AERIAL_LINE{n}_INFO_MODE=poi` |
+| filename fallback | none | none | `AERIAL_LINE{n}_TYPE=information`, `AERIAL_LINE{n}_INFO_MODE=filename` |
+| custom text | Windows `displayText[position][line].type=text` | `text` | `AERIAL_LINE{n}_TYPE=message`, `AERIAL_LINE{n}_TEXT` |
+| default font | Windows `defaultFont=true` | global `textFont/textSize/textColor` | `AERIAL_LINE{n}_USE_DEFAULT_FONT=1`, global `AERIAL_TEXT_*` |
+| per-line font | Windows `defaultFont=false` | `font/fontSize/fontColor` | `AERIAL_LINE{n}_FONT`, `AERIAL_LINE{n}_FONT_SIZE`, `AERIAL_LINE{n}_COLOR` |
 
-Custom time/date strings are stored as strftime strings at runtime. The web
-importer translates common Apple DateFormatter/Moment tokens to strftime and
-preserves already-strftime strings unchanged.
+The Pi runtime now stores custom time/date strings as Moment.js-style strings
+for Windows parity. Lua implements the Windows help tokens:
+`YYYY YY MMMM MMM MM M DD D dddd ddd dd d Do HH H hh h mm m ss s A a`.
+
+Legacy `AERIAL_CLOCK_*`, `AERIAL_DATE_*`, `AERIAL_LOC_*`, and `AERIAL_MSG_*`
+keys are still accepted. If no `AERIAL_TEXT_*` or `AERIAL_LINE*` key is present,
+`bin/aerial-signage` and `/api/state` migrate the old fixed layers into the new
+line model at runtime so existing devices keep their current display.

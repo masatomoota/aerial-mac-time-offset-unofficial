@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import hmac
 import html
@@ -22,7 +23,7 @@ import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 DEFAULT_CONFIG = "/etc/aerial-signage/aerial-signage.conf"
@@ -31,6 +32,14 @@ CONFIG_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 VALID_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|[^\s\"'`;&|<>]*)(\s+#.*)?$")
 
 KNOWN_KEYS = {
+    "AERIAL_TEXT_POSITION",
+    "AERIAL_TEXT_FONT",
+    "AERIAL_TEXT_SIZE",
+    "AERIAL_TEXT_COLOR",
+    "AERIAL_TEXT_MARGIN",
+    "AERIAL_TEXT_MAX_WIDTH",
+    "AERIAL_TEXT_RANDOM_INTERVAL",
+    "AERIAL_WINDOWS_CONFIG_PASSTHROUGH_B64",
     "AERIAL_CLOCK_ENABLED",
     "AERIAL_CLOCK_OFFSET_MINUTES",
     "AERIAL_CLOCK_FORMAT",
@@ -66,6 +75,8 @@ KNOWN_KEYS = {
     "AERIAL_MSG_FONT",
     "AERIAL_MSG_COLOR",
     "AERIAL_MSG_MARGIN",
+    "AERIAL_OSD_BORDER",
+    "AERIAL_OSD_SHADOW",
     "AERIAL_MSG_TEXT",
     "AERIAL_QUALITY",
     "AERIAL_SOURCE",
@@ -82,8 +93,29 @@ KNOWN_KEYS = {
     "AERIAL_MPV_HWDEC",
     "AERIAL_MPV_EXTRA",
 }
+for _line_no in range(1, 5):
+    KNOWN_KEYS.update(
+        {
+            f"AERIAL_LINE{_line_no}_TYPE",
+            f"AERIAL_LINE{_line_no}_FORMAT",
+            f"AERIAL_LINE{_line_no}_TEXT",
+            f"AERIAL_LINE{_line_no}_INFO_MODE",
+            f"AERIAL_LINE{_line_no}_USE_DEFAULT_FONT",
+            f"AERIAL_LINE{_line_no}_FONT",
+            f"AERIAL_LINE{_line_no}_FONT_SIZE",
+            f"AERIAL_LINE{_line_no}_COLOR",
+        }
+    )
 
 WEB_DEFAULTS = {
+    "AERIAL_TEXT_POSITION": "bottomLeft",
+    "AERIAL_TEXT_FONT": "Segoe UI",
+    "AERIAL_TEXT_SIZE": "2",
+    "AERIAL_TEXT_COLOR": "FFFFFF",
+    "AERIAL_TEXT_MARGIN": "60",
+    "AERIAL_TEXT_MAX_WIDTH": "50",
+    "AERIAL_TEXT_RANDOM_INTERVAL": "30",
+    "AERIAL_WINDOWS_CONFIG_PASSTHROUGH_B64": "",
     "AERIAL_CLOCK_ENABLED": "1",
     "AERIAL_CLOCK_OFFSET_MINUTES": "0",
     "AERIAL_CLOCK_FORMAT": "24h",
@@ -92,13 +124,13 @@ WEB_DEFAULTS = {
     "AERIAL_CLOCK_CUSTOM_FORMAT": "%H:%M",
     "AERIAL_CLOCK_CORNER": "bottomLeft",
     "AERIAL_CLOCK_FONT_SIZE": "50",
-    "AERIAL_CLOCK_FONT": "",
+    "AERIAL_CLOCK_FONT": "Noto Sans CJK JP",
     "AERIAL_CLOCK_MARGIN": "60",
     "AERIAL_CLOCK_COLOR": "FFFFFF",
     "AERIAL_DATE_ENABLED": "0",
     "AERIAL_DATE_CORNER": "bottomLeft",
     "AERIAL_DATE_FONT_SIZE": "25",
-    "AERIAL_DATE_FONT": "",
+    "AERIAL_DATE_FONT": "Noto Sans CJK JP",
     "AERIAL_DATE_COLOR": "FFFFFF",
     "AERIAL_DATE_MARGIN": "60",
     "AERIAL_DATE_FORMAT": "textual",
@@ -108,20 +140,22 @@ WEB_DEFAULTS = {
     "AERIAL_LOC_ENABLED": "0",
     "AERIAL_LOC_CORNER": "topRight",
     "AERIAL_LOC_FONT_SIZE": "28",
-    "AERIAL_LOC_FONT": "",
+    "AERIAL_LOC_FONT": "Noto Sans CJK JP",
     "AERIAL_LOC_COLOR": "FFFFFF",
     "AERIAL_LOC_MARGIN": "60",
     "AERIAL_LOC_MODE": "accessibilityLabel",
-    "AERIAL_LABELS_FILE": "/var/lib/aerial-signage/labels.tsv",
+    "AERIAL_LABELS_FILE": "/var/lib/aerial-signage/labels.json",
     "AERIAL_MSG_ENABLED": "0",
     "AERIAL_MSG_CORNER": "bottomRight",
     "AERIAL_MSG_FONT_SIZE": "24",
-    "AERIAL_MSG_FONT": "",
+    "AERIAL_MSG_FONT": "Noto Sans CJK JP",
     "AERIAL_MSG_COLOR": "FFFFFF",
     "AERIAL_MSG_MARGIN": "60",
-    "AERIAL_MSG_TEXT": "",
-    "AERIAL_QUALITY": "1080-h264",
-    "AERIAL_SOURCE": "tvos16",
+    "AERIAL_OSD_BORDER": "0",
+    "AERIAL_OSD_SHADOW": "1",
+    "AERIAL_MSG_TEXT": "Studio Vibes Wi-Fi\\nSSID : fcm-dkym-booth\\nPW : dkymfcm117",
+    "AERIAL_QUALITY": "1080-sdr",
+    "AERIAL_SOURCE": "classic63",
     "AERIAL_MANIFEST_URL": "https://raw.githubusercontent.com/kopiro/xscreensaver-apple-aerial/main/entries.json",
     "AERIAL_CACHE_DIR": "/var/lib/aerial-signage/videos",
     "AERIAL_PLAYLIST": "/var/lib/aerial-signage/playlist.txt",
@@ -135,6 +169,90 @@ WEB_DEFAULTS = {
     "AERIAL_MPV_HWDEC": "drm-copy",
     "AERIAL_MPV_EXTRA": "",
 }
+for _line_no in range(1, 5):
+    WEB_DEFAULTS.update(
+        {
+            f"AERIAL_LINE{_line_no}_TYPE": "none",
+            f"AERIAL_LINE{_line_no}_FORMAT": "hh:mm:ss",
+            f"AERIAL_LINE{_line_no}_TEXT": "",
+            f"AERIAL_LINE{_line_no}_INFO_MODE": "poi",
+            f"AERIAL_LINE{_line_no}_USE_DEFAULT_FONT": "1",
+            f"AERIAL_LINE{_line_no}_FONT": "",
+            f"AERIAL_LINE{_line_no}_FONT_SIZE": "2",
+            f"AERIAL_LINE{_line_no}_COLOR": "",
+        }
+    )
+COLOR_KEYS = {
+    "AERIAL_MSG_COLOR",
+    "AERIAL_CLOCK_COLOR",
+    "AERIAL_DATE_COLOR",
+    "AERIAL_LOC_COLOR",
+    "AERIAL_TEXT_COLOR",
+}
+for _line_no in range(1, 5):
+    COLOR_KEYS.add(f"AERIAL_LINE{_line_no}_COLOR")
+HEX_COLOR_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
+FORM_SAVE_KEYS = {
+    "AERIAL_TEXT_POSITION",
+    "AERIAL_TEXT_FONT",
+    "AERIAL_TEXT_SIZE",
+    "AERIAL_TEXT_COLOR",
+    "AERIAL_TEXT_MARGIN",
+    "AERIAL_TEXT_MAX_WIDTH",
+    "AERIAL_TEXT_RANDOM_INTERVAL",
+    "AERIAL_WINDOWS_CONFIG_PASSTHROUGH_B64",
+    "AERIAL_QUALITY",
+    "AERIAL_VIDEO_LIMIT",
+    "AERIAL_STRICT_QUALITY",
+    "AERIAL_SHUFFLE",
+    "AERIAL_CLOCK_OFFSET_MINUTES",
+    "AERIAL_MSG_CORNER",
+    "AERIAL_MSG_ENABLED",
+    "AERIAL_MSG_TEXT",
+    "AERIAL_CLOCK_CORNER",
+    "AERIAL_CLOCK_ENABLED",
+    "AERIAL_CLOCK_FORMAT",
+    "AERIAL_CLOCK_SECONDS",
+    "AERIAL_CLOCK_HIDE_AMPM",
+    "AERIAL_CLOCK_CUSTOM_FORMAT",
+    "AERIAL_DATE_CORNER",
+    "AERIAL_DATE_ENABLED",
+    "AERIAL_DATE_FORMAT",
+    "AERIAL_DATE_WITH_YEAR",
+    "AERIAL_DATE_LANG",
+    "AERIAL_DATE_CUSTOM_FORMAT",
+    "AERIAL_LOC_CORNER",
+    "AERIAL_LOC_ENABLED",
+    "AERIAL_LOC_MODE",
+    "AERIAL_MSG_FONT",
+    "AERIAL_MSG_FONT_SIZE",
+    "AERIAL_MSG_COLOR",
+    "AERIAL_CLOCK_FONT",
+    "AERIAL_CLOCK_FONT_SIZE",
+    "AERIAL_CLOCK_COLOR",
+    "AERIAL_DATE_FONT",
+    "AERIAL_DATE_FONT_SIZE",
+    "AERIAL_DATE_COLOR",
+    "AERIAL_LOC_FONT",
+    "AERIAL_LOC_FONT_SIZE",
+    "AERIAL_LOC_COLOR",
+    "AERIAL_SOURCE",
+    "AERIAL_SCENES",
+    "AERIAL_HIDDEN_VIDEOS",
+}
+for _line_no in range(1, 5):
+    FORM_SAVE_KEYS.update(
+        {
+            f"AERIAL_LINE{_line_no}_TYPE",
+            f"AERIAL_LINE{_line_no}_FORMAT",
+            f"AERIAL_LINE{_line_no}_TEXT",
+            f"AERIAL_LINE{_line_no}_INFO_MODE",
+            f"AERIAL_LINE{_line_no}_USE_DEFAULT_FONT",
+            f"AERIAL_LINE{_line_no}_FONT",
+            f"AERIAL_LINE{_line_no}_FONT_SIZE",
+            f"AERIAL_LINE{_line_no}_COLOR",
+        }
+    )
 
 # See docs/display-settings-mapping.md for the authoritative spec/Windows/env table.
 SPEC_CORNER_TO_ENV = {
@@ -178,6 +296,93 @@ def bool01(value: Any) -> str:
     return "1" if str(value).strip().lower() in {"1", "true", "yes", "on"} else "0"
 
 
+def strftime_to_moment(raw: str) -> str:
+    replacements = {
+        "%Y": "YYYY",
+        "%y": "YY",
+        "%B": "MMMM",
+        "%b": "MMM",
+        "%m": "MM",
+        "%d": "DD",
+        "%A": "dddd",
+        "%a": "ddd",
+        "%H": "HH",
+        "%I": "hh",
+        "%M": "mm",
+        "%S": "ss",
+        "%p": "A",
+    }
+    out = str(raw)
+    for source, target in replacements.items():
+        out = out.replace(source, target)
+    return out
+
+
+def legacy_clock_moment_format(cfg: Dict[str, str]) -> str:
+    if cfg.get("AERIAL_CLOCK_FORMAT") == "12h":
+        seconds = ":ss" if cfg.get("AERIAL_CLOCK_SECONDS") == "1" else ""
+        ampm = "" if cfg.get("AERIAL_CLOCK_HIDE_AMPM") == "1" else " A"
+        return f"h:mm{seconds}{ampm}"
+    if cfg.get("AERIAL_CLOCK_FORMAT") == "custom":
+        return strftime_to_moment(cfg.get("AERIAL_CLOCK_CUSTOM_FORMAT", "%H:%M"))
+    return "HH:mm:ss" if cfg.get("AERIAL_CLOCK_SECONDS") == "1" else "HH:mm"
+
+
+def legacy_date_moment_format(cfg: Dict[str, str]) -> str:
+    mode = cfg.get("AERIAL_DATE_FORMAT", "textual")
+    if mode == "custom":
+        return strftime_to_moment(cfg.get("AERIAL_DATE_CUSTOM_FORMAT", "%Y-%m-%d"))
+    if mode in {"compact", "numeric"}:
+        return "YYYY/MM/DD" if cfg.get("AERIAL_DATE_WITH_YEAR") == "1" or mode == "numeric" else "MM/DD"
+    return "YYYY MMMM D dddd" if cfg.get("AERIAL_DATE_WITH_YEAR") == "1" else "MMMM D dddd"
+
+
+def legacy_text_position(cfg: Dict[str, str]) -> str:
+    for prefix, default in (
+        ("AERIAL_CLOCK", "bottomLeft"),
+        ("AERIAL_DATE", "bottomLeft"),
+        ("AERIAL_LOC", "topRight"),
+        ("AERIAL_MSG", "bottomRight"),
+    ):
+        if cfg.get(f"{prefix}_ENABLED") == "1":
+            return cfg.get(f"{prefix}_CORNER", default)
+    return "bottomLeft"
+
+
+def apply_legacy_text_migration(cfg: Dict[str, str]) -> Dict[str, str]:
+    migrated = dict(cfg)
+    migrated["AERIAL_TEXT_POSITION"] = legacy_text_position(migrated)
+    migrated["AERIAL_TEXT_FONT"] = migrated.get("AERIAL_CLOCK_FONT") or "Segoe UI"
+    migrated["AERIAL_TEXT_SIZE"] = "2"
+    migrated["AERIAL_TEXT_COLOR"] = migrated.get("AERIAL_CLOCK_COLOR") or "FFFFFF"
+    migrated["AERIAL_TEXT_RANDOM_INTERVAL"] = "30"
+    migrated["AERIAL_TEXT_MAX_WIDTH"] = "50"
+    line_no = 1
+
+    def set_line(line_type: str, line_format: str = "hh:mm:ss", text: str = "", info_mode: str = "poi") -> None:
+        nonlocal line_no
+        if line_no > 4:
+            return
+        prefix = f"AERIAL_LINE{line_no}"
+        migrated[f"{prefix}_TYPE"] = line_type
+        migrated[f"{prefix}_FORMAT"] = line_format
+        migrated[f"{prefix}_TEXT"] = text
+        migrated[f"{prefix}_INFO_MODE"] = info_mode
+        migrated[f"{prefix}_USE_DEFAULT_FONT"] = "1"
+        line_no += 1
+
+    if migrated.get("AERIAL_CLOCK_ENABLED") == "1":
+        set_line("timedate", legacy_clock_moment_format(migrated))
+    if migrated.get("AERIAL_DATE_ENABLED") == "1":
+        set_line("timedate", legacy_date_moment_format(migrated))
+    if migrated.get("AERIAL_LOC_ENABLED") == "1":
+        mode = migrated.get("AERIAL_LOC_MODE", "accessibilityLabel")
+        set_line("videoname" if mode in {"videoName", "name"} else "information", info_mode=mode)
+    if migrated.get("AERIAL_MSG_ENABLED") == "1":
+        set_line("message", text=migrated.get("AERIAL_MSG_TEXT", ""))
+    return migrated
+
+
 def normalize_config_payload(config: Dict[str, Any]) -> Dict[str, str]:
     normalized: Dict[str, str] = {}
     for key, value in config.items():
@@ -191,6 +396,10 @@ def normalize_config_payload(config: Dict[str, Any]) -> Dict[str, str]:
             "AERIAL_DATE_WITH_YEAR",
             "AERIAL_STRICT_QUALITY",
             "AERIAL_SHUFFLE",
+            "AERIAL_LINE1_USE_DEFAULT_FONT",
+            "AERIAL_LINE2_USE_DEFAULT_FONT",
+            "AERIAL_LINE3_USE_DEFAULT_FONT",
+            "AERIAL_LINE4_USE_DEFAULT_FONT",
         }:
             normalized[key] = bool01(value)
         else:
@@ -199,9 +408,31 @@ def normalize_config_payload(config: Dict[str, Any]) -> Dict[str, str]:
 
 
 def effective_config(cfg: Dict[str, str]) -> Dict[str, str]:
+    has_new_text = any(key in cfg and cfg[key] != "" for key in FORM_SAVE_KEYS if key.startswith("AERIAL_TEXT_") or re.match(r"^AERIAL_LINE[1-4]_", key))
     effective = dict(WEB_DEFAULTS)
-    effective.update(cfg)
+    for key, value in cfg.items():
+        if value != "":
+            effective[key] = value
+    if not has_new_text:
+        effective = apply_legacy_text_migration(effective)
     return effective
+
+
+def save_config_updates(config: Dict[str, Any]) -> Tuple[Dict[str, str], Set[str]]:
+    displayed = {key: value for key, value in config.items() if key in FORM_SAVE_KEYS}
+    normalized = normalize_config_payload(displayed)
+    sanitized: Dict[str, str] = {}
+    removals: Set[str] = set()
+    for key, value in normalized.items():
+        if value == "":
+            removals.add(key)
+            continue
+        if key in COLOR_KEYS:
+            if not HEX_COLOR_RE.match(value):
+                raise ValueError(f"{key} must be a 6-hex color")
+            value = value.upper()
+        sanitized[key] = value
+    return sanitized, removals
 
 
 def quote_config_value(value: str) -> str:
@@ -230,8 +461,9 @@ def validate_config_line(line: str) -> None:
         raise ValueError(f"invalid config line: {line}")
 
 
-def rewrite_config_text(original: str, updates: Dict[str, str]) -> str:
+def rewrite_config_text(original: str, updates: Dict[str, str], remove_keys: Iterable[str] = ()) -> str:
     normalized = normalize_config_payload(updates)
+    removals = set(remove_keys) - set(normalized)
     seen = set()
     output: List[str] = []
     for raw_line in original.splitlines():
@@ -240,6 +472,8 @@ def rewrite_config_text(original: str, updates: Dict[str, str]) -> str:
             key = match.group(1)
             output.append(format_config_line(key, normalized[key]))
             seen.add(key)
+        elif match and match.group(1) in removals:
+            continue
         else:
             output.append(raw_line)
     missing = [key for key in normalized if key not in seen]
@@ -252,9 +486,9 @@ def rewrite_config_text(original: str, updates: Dict[str, str]) -> str:
     return "\n".join(output) + "\n"
 
 
-def write_config_file(path: Path, updates: Dict[str, str]) -> None:
+def write_config_file(path: Path, updates: Dict[str, str], remove_keys: Iterable[str] = ()) -> None:
     original = path.read_text(encoding="utf-8") if path.exists() else ""
-    rewritten = rewrite_config_text(original, updates)
+    rewritten = rewrite_config_text(original, updates, remove_keys)
     for line in rewritten.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and CONFIG_LINE_RE.match(stripped):
@@ -337,7 +571,8 @@ def restart_player() -> Dict[str, Any]:
 
 
 def save_config_and_restart(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    write_config_file(config_path(), cfg)
+    updates, removals = save_config_updates(cfg)
+    write_config_file(config_path(), updates, removals)
     fetch = rebuild_playlist()
     current_cfg = parse_key_value_config(config_path())
     count = playlist_count(current_cfg)
@@ -455,6 +690,217 @@ def api_videos() -> Dict[str, Any]:
                     }
                 )
     return {"ok": result["ok"], "videos": videos, "error": result["stderr"]}
+
+
+PROFILE_KEYS = {
+    "AERIAL_SOURCE",
+    "AERIAL_QUALITY",
+    "AERIAL_VIDEO_LIMIT",
+    "AERIAL_STRICT_QUALITY",
+    "AERIAL_SCENES",
+    "AERIAL_HIDDEN_VIDEOS",
+    "AERIAL_SHUFFLE",
+}
+
+
+def profiles_dir() -> Path:
+    return Path(os.environ.get("AERIAL_PROFILES_DIR", "/etc/aerial-signage/profiles"))
+
+
+def profile_path(name: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", name.strip()).strip(".-")
+    if not safe:
+        raise ValueError("profile name is required")
+    return profiles_dir() / f"{safe}.json"
+
+
+def list_profiles() -> Dict[str, Any]:
+    root = profiles_dir()
+    if not root.exists():
+        return {"ok": True, "profiles": []}
+    profiles = sorted(path.stem for path in root.glob("*.json") if path.is_file())
+    return {"ok": True, "profiles": profiles}
+
+
+def save_profile(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = normalize_config_payload({key: value for key, value in cfg.items() if key in PROFILE_KEYS})
+    path = profile_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"name": path.stem, "config": normalized}, indent=2, sort_keys=True), encoding="utf-8")
+    return {"ok": True, "name": path.stem, "config": normalized}
+
+
+def load_profile(name: str) -> Dict[str, Any]:
+    path = profile_path(name)
+    if not path.exists():
+        raise ValueError("profile not found")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("config"), dict):
+        raise ValueError("invalid profile")
+    config = normalize_config_payload({key: value for key, value in payload["config"].items() if key in PROFILE_KEYS})
+    return {"ok": True, "name": path.stem, "config": config}
+
+
+def delete_profile(name: str) -> Dict[str, Any]:
+    path = profile_path(name)
+    if path.exists():
+        path.unlink()
+    return {"ok": True, "name": path.stem}
+
+
+WINDOWS_POSITIONS = ["topleft", "topright", "bottomleft", "bottomright", "left", "right", "middle", "topmiddle", "bottommiddle", "random"]
+ENV_TO_WINDOWS_CORNER = {value: key for key, value in WINDOWS_CORNER_TO_ENV.items()}
+ENV_TO_WINDOWS_CORNER.update({"topCenter": "topmiddle", "bottomCenter": "bottommiddle", "screenCenter": "middle"})
+
+
+def decode_passthrough(raw: str) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(base64.b64decode(raw.encode("ascii")).decode("utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def encode_passthrough(payload: Dict[str, Any]) -> str:
+    if not payload:
+        return ""
+    return base64.b64encode(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).decode("ascii")
+
+
+def line_from_windows(line: Dict[str, Any]) -> Tuple[Dict[str, str], Dict[str, Any]]:
+    mapped: Dict[str, str] = {}
+    passthrough = dict(line)
+    line_type = line.get("type", "none")
+    if line_type == "time":
+        mapped["TYPE"] = "timedate"
+        mapped["FORMAT"] = str(line.get("timeString") or "hh:mm:ss")
+    elif line_type == "information":
+        info_type = str(line.get("infoType") or "accessibilityLabel")
+        mapped["TYPE"] = "videoname" if info_type in {"name", "videoName"} else "information"
+        mapped["INFO_MODE"] = "poi" if info_type == "information" else info_type
+    elif line_type == "text":
+        mapped["TYPE"] = "message"
+        mapped["TEXT"] = str(line.get("text") or "")
+    elif line_type == "none":
+        mapped["TYPE"] = "none"
+    else:
+        mapped["TYPE"] = "none"
+    mapped["USE_DEFAULT_FONT"] = bool01(line.get("defaultFont", True))
+    if isinstance(line.get("font"), str):
+        mapped["FONT"] = line["font"]
+    if line.get("fontSize") is not None:
+        mapped["FONT_SIZE"] = str(line["fontSize"])
+    if isinstance(line.get("fontColor"), str):
+        mapped["COLOR"] = line["fontColor"].replace("#", "")
+    if isinstance(line.get("maxWidth"), str):
+        mapped["MAX_WIDTH"] = line["maxWidth"].replace("%", "")
+    for key in ("type", "timeString", "infoType", "text", "defaultFont", "font", "fontSize", "fontColor", "maxWidth"):
+        passthrough.pop(key, None)
+    return mapped, passthrough
+
+
+def import_windows_config_json(config_text: str) -> Dict[str, Any]:
+    try:
+        payload = json.loads(config_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid Windows config.json: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Windows config root must be an object")
+
+    updates: Dict[str, Any] = {}
+    passthrough = dict(payload)
+    if isinstance(payload.get("textFont"), str):
+        updates["AERIAL_TEXT_FONT"] = payload["textFont"]
+        passthrough.pop("textFont", None)
+    if payload.get("textSize") is not None:
+        updates["AERIAL_TEXT_SIZE"] = str(payload["textSize"])
+        passthrough.pop("textSize", None)
+    if isinstance(payload.get("textColor"), str):
+        updates["AERIAL_TEXT_COLOR"] = payload["textColor"].replace("#", "")
+        passthrough.pop("textColor", None)
+    if payload.get("randomSpeed") is not None:
+        updates["AERIAL_TEXT_RANDOM_INTERVAL"] = str(payload["randomSpeed"])
+        passthrough.pop("randomSpeed", None)
+
+    display = payload.get("displayText")
+    if isinstance(display, dict):
+        passthrough.pop("displayText", None)
+        selected_position = None
+        selected_lines: List[Dict[str, Any]] = []
+        for position in WINDOWS_POSITIONS:
+            lines = display.get(position)
+            if isinstance(lines, list) and any(isinstance(line, dict) and line.get("type") not in {None, "none"} for line in lines):
+                selected_position = position
+                selected_lines = [line for line in lines if isinstance(line, dict)]
+                break
+        if selected_position is None:
+            selected_position = "bottomleft"
+            selected_lines = []
+        updates["AERIAL_TEXT_POSITION"] = WINDOWS_CORNER_TO_ENV.get(selected_position, selected_position)
+        for index in range(4):
+            prefix = f"AERIAL_LINE{index + 1}"
+            line = selected_lines[index] if index < len(selected_lines) else {"type": "none", "defaultFont": True}
+            mapped, line_passthrough = line_from_windows(line)
+            updates[f"{prefix}_TYPE"] = mapped.get("TYPE", "none")
+            updates[f"{prefix}_FORMAT"] = mapped.get("FORMAT", "hh:mm:ss")
+            updates[f"{prefix}_TEXT"] = mapped.get("TEXT", "")
+            updates[f"{prefix}_INFO_MODE"] = mapped.get("INFO_MODE", "poi")
+            updates[f"{prefix}_USE_DEFAULT_FONT"] = mapped.get("USE_DEFAULT_FONT", "1")
+            updates[f"{prefix}_FONT"] = mapped.get("FONT", "")
+            updates[f"{prefix}_FONT_SIZE"] = mapped.get("FONT_SIZE", updates.get("AERIAL_TEXT_SIZE", "2"))
+            updates[f"{prefix}_COLOR"] = mapped.get("COLOR", "")
+            if mapped.get("MAX_WIDTH"):
+                updates["AERIAL_TEXT_MAX_WIDTH"] = mapped["MAX_WIDTH"]
+            if line_passthrough:
+                passthrough.setdefault("displayTextLinePassthrough", {})[str(index + 1)] = line_passthrough
+
+    updates["AERIAL_WINDOWS_CONFIG_PASSTHROUGH_B64"] = encode_passthrough(passthrough)
+    normalized = normalize_config_payload(updates)
+    for key in COLOR_KEYS.intersection(normalized):
+        if normalized[key] and not HEX_COLOR_RE.match(normalized[key]):
+            raise ValueError(f"{key} must be a 6-hex color")
+        normalized[key] = normalized[key].upper()
+    return {"ok": True, "config": normalized, "passthrough_keys": sorted(passthrough.keys())}
+
+
+def windows_line_from_config(cfg: Dict[str, str], line_no: int) -> Dict[str, Any]:
+    prefix = f"AERIAL_LINE{line_no}"
+    line_type = cfg.get(f"{prefix}_TYPE", "none")
+    line: Dict[str, Any] = {"type": "none", "defaultFont": cfg.get(f"{prefix}_USE_DEFAULT_FONT", "1") == "1"}
+    if line_type == "timedate":
+        line.update({"type": "time", "timeString": cfg.get(f"{prefix}_FORMAT", "hh:mm:ss")})
+    elif line_type == "videoname":
+        line.update({"type": "information", "infoType": "name"})
+    elif line_type in {"information", "poi"}:
+        line.update({"type": "information", "infoType": cfg.get(f"{prefix}_INFO_MODE", "poi")})
+    elif line_type == "message":
+        line.update({"type": "text", "text": cfg.get(f"{prefix}_TEXT", "")})
+    if line["type"] != "none":
+        if line["defaultFont"] is False:
+            line["font"] = cfg.get(f"{prefix}_FONT") or cfg.get("AERIAL_TEXT_FONT", "Segoe UI")
+            line["fontSize"] = cfg.get(f"{prefix}_FONT_SIZE") or cfg.get("AERIAL_TEXT_SIZE", "2")
+            color = cfg.get(f"{prefix}_COLOR") or cfg.get("AERIAL_TEXT_COLOR", "FFFFFF")
+            line["fontColor"] = "#" + color.replace("#", "")
+        line["maxWidth"] = cfg.get("AERIAL_TEXT_MAX_WIDTH", "50") + "%"
+    return line
+
+
+def export_windows_config_json(cfg: Dict[str, str]) -> Dict[str, Any]:
+    effective = effective_config(cfg)
+    payload = decode_passthrough(effective.get("AERIAL_WINDOWS_CONFIG_PASSTHROUGH_B64", ""))
+    payload["textFont"] = effective.get("AERIAL_TEXT_FONT", "Segoe UI")
+    payload["textSize"] = effective.get("AERIAL_TEXT_SIZE", "2")
+    payload["textColor"] = "#" + effective.get("AERIAL_TEXT_COLOR", "FFFFFF").replace("#", "")
+    payload["randomSpeed"] = int(float(effective.get("AERIAL_TEXT_RANDOM_INTERVAL", "30")))
+    display = {"positionList": WINDOWS_POSITIONS}
+    for position in WINDOWS_POSITIONS:
+        display[position] = [{"type": "none", "defaultFont": True} for _ in range(4)]
+    selected = ENV_TO_WINDOWS_CORNER.get(effective.get("AERIAL_TEXT_POSITION", "bottomLeft"), "bottomleft")
+    display[selected] = [windows_line_from_config(effective, index) for index in range(1, 5)]
+    payload["displayText"] = display
+    return payload
 
 
 def _json_dict(raw: Any) -> Optional[Dict[str, Any]]:
@@ -679,34 +1125,38 @@ button:disabled{opacity:.62;cursor:wait}
 <section id="styleSettings" class="settingsCard"><h2>Style</h2><div class="grid"><label>Playback Speed<input type="range" min=".75" max="4" value="1" step=".05" disabled></label></div></section>
 <section id="cacheSettings" class="settingsCard"><h2>Video Cache Settings</h2><div class="grid"><label class="row"><input type="checkbox" disabled> Automatically download checked videos to the cache</label><label class="row"><input type="checkbox" disabled> Include videos in saved profiles</label><label class="row"><input type="checkbox" disabled> Automatically remove unchecked videos</label><div class="stack" id="systemStatus"></div></div></section>
 <section id="customVideoSettings" class="settingsCard"><h2>Custom Videos</h2><div class="row"><button disabled>Add Folder</button></div></section>
-<section id="advancedSettings" class="settingsCard"><h2>Advanced Settings</h2><div class="row"><button class="primary" id="saveApply">Save & Apply</button><button id="fetchNow">Fetch now</button><button id="restartPlayer">Restart player</button><button id="importDisplay">Import Display Settings...</button><input id="importFile" type="file" accept=".plist,.xml,text/xml,application/xml" hidden><button class="danger" id="reboot">Reboot</button></div></section>
+<section id="advancedSettings" class="settingsCard"><h2>Advanced Settings</h2><div class="row"><button class="primary" id="saveApply">Save & Apply</button><button id="fetchNow">Fetch now</button><button id="restartPlayer">Restart player</button><button id="exportSettings">Export Settings</button><button id="importSettings">Import Settings...</button><input id="importConfigFile" type="file" accept=".json,application/json" hidden><button id="importDisplay">Import Display Settings...</button><input id="importFile" type="file" accept=".plist,.xml,text/xml,application/xml" hidden><button class="danger" id="reboot">Reboot</button></div></section>
 <section id="aboutSettings" class="settingsCard"><h2>About Aerial</h2><div>Apple TV screen saver for Raspberry Pi signage</div></section>
 </div></div></div>
-<div id="videoTab" class="tab"><section><h2>Video Settings</h2><div class="row" id="sceneChecks"></div><div class="row"><button id="allScenes">Select all</button><button id="noScenes">Select none</button></div><div class="video-list" id="videoList"></div></section></div>
+<div id="videoTab" class="tab"><section><h2>Video Settings</h2><div class="row"><input id="profileName" placeholder="Profile name" style="max-width:220px"><select id="profileSelect" style="max-width:220px"></select><button id="profileSave">Create/Update</button><button id="profileLoad">Load</button><button id="profileDelete" class="danger">Delete</button></div><div class="row" id="sceneChecks"></div><div class="row"><button id="allScenes">Select all</button><button id="noScenes">Select none</button></div><div class="video-list" id="videoList"></div></section></div>
 <div id="textTab" class="tab"><div class="layout"><aside class="side" id="textSide"><button data-card="positionTextSettings" class="active">Position</button><button data-card="textOptionsTextSettings">Text Options</button></aside><div class="stack"><section id="positionTextSettings" class="textSettingsCard active"><h2>Position</h2><div class="stack" id="positionRows"></div></section><section id="textOptionsTextSettings" class="textSettingsCard"><h2>Text Options</h2><div class="grid" id="textOptions"></div></section></div></div></div>
 </main>
 <div id="toast"></div>
 <script>
 const scenes=["countryside","nature","city","beach","sea","space","other"];
 const corners=[["topLeft","Top Left"],["topCenter","Top Center"],["topRight","Top Right"],["bottomLeft","Bottom Left"],["bottomCenter","Bottom Center"],["bottomRight","Bottom Right"],["left","Left"],["right","Right"],["screenCenter","Middle"],["random","Random"]];
-const layers=[["Message","AERIAL_MSG","text"],["Clock","AERIAL_CLOCK","time"],["Date","AERIAL_DATE","time"],["Location","AERIAL_LOC","information"]];
-let state={config:{},sources:[],videos:[]};
+const lineTypes=[["none","None"],["timedate","Time-Date"],["information","Astronomy/Information"],["videoname","Video Name"],["message","Message"]];
+let state={config:{},sources:[],videos:[],profiles:[]};
 const $=s=>document.querySelector(s);const $$=s=>Array.from(document.querySelectorAll(s));const cfg=k=>state.config[k]||"";
 let toastTimer=0;function toast(msg,error=false){clearTimeout(toastTimer);const el=$("#toast");el.textContent=msg;el.className=error?"show error":"show";toastTimer=setTimeout(()=>{el.className=""},4000)}
 async function busy(btn,fn){const label=btn.textContent;btn.disabled=true;btn.textContent="...";try{await fn()}catch(e){toast(e.message||String(e),true)}finally{btn.disabled=false;btn.textContent=label}}
 async function api(path,body){const opt=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{};const r=await fetch(path,opt);let data=null;try{data=await r.json()}catch(e){data={error:await r.text()}}if(!r.ok)throw new Error(data.error||JSON.stringify(data));return data}
 function setValue(k,v){const el=document.querySelector(`[data-key="${k}"]`);if(!el)return;if(el.type==="checkbox")el.checked=v==="1";else el.value=v}
 function readValue(k){const el=document.querySelector(`[data-key="${k}"]`);if(!el)return"";return el.type==="checkbox"?(el.checked?"1":"0"):el.value}
-function typeValue(prefix){if(prefix==="AERIAL_MSG")return cfg("AERIAL_MSG_ENABLED")==="1"?"text":"none";if(prefix==="AERIAL_CLOCK")return cfg("AERIAL_CLOCK_ENABLED")==="1"?"time":"none";if(prefix==="AERIAL_DATE")return cfg("AERIAL_DATE_ENABLED")==="1"?"time":"none";if(prefix==="AERIAL_LOC")return cfg("AERIAL_LOC_ENABLED")==="1"?"information":"none";return"none"}
-function updateType(prefix,select){const enabled=select.value==="none"?"0":"1";const el=document.querySelector(`[data-key="${prefix}_ENABLED"]`);if(el)el.checked=enabled==="1"}
+function pad(n,w=2){return String(n).padStart(w,"0")}
+function ordinal(n){const v=n%100;if(v>=11&&v<=13)return n+"th";return n+({1:"st",2:"nd",3:"rd"}[n%10]||"th")}
+function momentPreview(fmt){const d=new Date(Date.now()+(Number(cfg("AERIAL_CLOCK_OFFSET_MINUTES"))||0)*60000);const months=["January","February","March","April","May","June","July","August","September","October","November","December"];const mon=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];const day=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];const dd=["Su","Mo","Tu","We","Th","Fr","Sa"];let h=d.getHours(),h12=h%12||12;const vals={YYYY:d.getFullYear(),YY:pad(d.getFullYear()%100),MMMM:months[d.getMonth()],MMM:mon[d.getMonth()],MM:pad(d.getMonth()+1),M:d.getMonth()+1,DD:pad(d.getDate()),D:d.getDate(),dddd:days[d.getDay()],ddd:day[d.getDay()],dd:dd[d.getDay()],d:d.getDay(),Do:ordinal(d.getDate()),HH:pad(h),H:h,hh:pad(h12),h:h12,mm:pad(d.getMinutes()),m:d.getMinutes(),ss:pad(d.getSeconds()),s:d.getSeconds(),A:h>=12?"PM":"AM",a:h>=12?"pm":"am"};const tokens=["YYYY","MMMM","dddd","MMM","ddd","Do","YY","MM","DD","dd","HH","hh","mm","ss","M","D","d","H","h","m","s","A","a"];let out="",i=0;while(i<fmt.length){if(fmt[i]==="["){let end=fmt.indexOf("]",i+1);if(end>-1){out+=fmt.slice(i+1,end);i=end+1;continue}}let hit=false;for(const t of tokens){if(fmt.startsWith(t,i)){out+=vals[t];i+=t.length;hit=true;break}}if(!hit){out+=fmt[i++]}}return out}
+function updateLineDetails(){for(let i=1;i<=4;i++){const type=readValue(`AERIAL_LINE${i}_TYPE`);const box=$(`#lineDetails${i}`);if(!box)continue;box.querySelectorAll("[data-type]").forEach(el=>el.style.display=el.dataset.type===type?"grid":"none");const fmt=box.querySelector(`[data-key="AERIAL_LINE${i}_FORMAT"]`);const prev=box.querySelector(".preview");if(fmt&&prev)prev.textContent=momentPreview(fmt.value||"hh:mm:ss");const useDefault=document.querySelector(`[data-key="AERIAL_LINE${i}_USE_DEFAULT_FONT"]`)?.checked;box.querySelectorAll("[data-custom-font]").forEach(el=>el.style.opacity=useDefault?.toString()==="true"?".45":"1")}}
+function lineCard(i){return `<div class="card"><div class="grid"><div><div class="panel-title">Line ${i}</div><label>Type<select data-key="AERIAL_LINE${i}_TYPE" onchange="updateLineDetails()">${lineTypes.map(t=>`<option value="${t[0]}">${t[1]}</option>`).join("")}</select></label></div><div id="lineDetails${i}" class="stack"><div data-type="timedate" class="stack"><label>Moment.js format<input data-key="AERIAL_LINE${i}_FORMAT" oninput="updateLineDetails()"></label><span class="badge preview"></span></div><div data-type="information" class="stack"><label>Information type<select data-key="AERIAL_LINE${i}_INFO_MODE"><option value="poi">Location Information</option><option value="accessibilityLabel">Label</option><option value="filename">Filename</option></select></label></div><div data-type="message" class="stack"><label>Text<textarea data-key="AERIAL_LINE${i}_TEXT"></textarea></label></div></div><label class="row"><input data-key="AERIAL_LINE${i}_USE_DEFAULT_FONT" type="checkbox" onchange="updateLineDetails()"> Use Default Font</label><label data-custom-font>Font<input data-key="AERIAL_LINE${i}_FONT"></label><label data-custom-font>Font Size<input data-key="AERIAL_LINE${i}_FONT_SIZE" type="number" step=".25" min=".25"></label><label data-custom-font>Color<input data-key="AERIAL_LINE${i}_COLOR" type="color"></label></div></div>`}
 function renderShell(){$("#sourceRadios").innerHTML=state.sources.map(s=>`<label class="row"><input type="radio" name="source" value="${s.id}"> ${s.name}${s.id==="tvos16"?" (114-video default)":""}</label>`).join("");
-$("#positionRows").innerHTML=layers.map((l,i)=>`<div class="card"><div class="grid"><div><div class="panel-title">Line ${i+1}</div><label>Type<select onchange="updateType('${l[1]}',this)"><option value="none">None</option><option value="text" ${l[2]==="text"?"selected":""}>Text</option><option value="time" ${l[2]==="time"?"selected":""}>Time/Date</option><option value="information" ${l[2]==="information"?"selected":""}>Information</option></select></label></div><label>Position<select data-key="${l[1]}_CORNER">${corners.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join("")}</select></label><label class="row"><input data-key="${l[1]}_ENABLED" type="checkbox"> Enable</label>${l[1]==="AERIAL_MSG"?'<label>Text<textarea data-key="AERIAL_MSG_TEXT"></textarea></label>':""}${l[1]==="AERIAL_CLOCK"?'<label>Format<select data-key="AERIAL_CLOCK_FORMAT"><option>24h</option><option>12h</option><option>custom</option></select></label><label class="row"><input data-key="AERIAL_CLOCK_SECONDS" type="checkbox"> Seconds</label><label class="row"><input data-key="AERIAL_CLOCK_HIDE_AMPM" type="checkbox"> Hide AM/PM</label><label>Custom format<input data-key="AERIAL_CLOCK_CUSTOM_FORMAT"></label>':""}${l[1]==="AERIAL_DATE"?'<label>Format<select data-key="AERIAL_DATE_FORMAT"><option>textual</option><option>compact</option><option>numeric</option><option>custom</option></select></label><label class="row"><input data-key="AERIAL_DATE_WITH_YEAR" type="checkbox"> Year</label><label>Language<select data-key="AERIAL_DATE_LANG"><option>ja</option><option>en</option></select></label><label>Custom format<input data-key="AERIAL_DATE_CUSTOM_FORMAT"></label>':""}${l[1]==="AERIAL_LOC"?'<label>Type<select data-key="AERIAL_LOC_MODE"><option value="accessibilityLabel">Label</option><option value="name">Video Name</option><option value="poi">Location Information</option><option value="filename">Filename</option></select></label>':""}</div></div>`).join("");
-$("#textOptions").innerHTML=layers.map(l=>`<div class="stack"><div class="panel-title">${l[0]}</div><label>Font<input data-key="${l[1]}_FONT"></label><label>Font Size<input data-key="${l[1]}_FONT_SIZE" type="number" min="8" max="160"></label><label>Color<input data-key="${l[1]}_COLOR" type="color"></label></div>`).join("")}
+$("#positionRows").innerHTML=`<div class="card"><div class="grid"><label>Position<select data-key="AERIAL_TEXT_POSITION">${corners.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join("")}</select></label><label>Max Width %<input data-key="AERIAL_TEXT_MAX_WIDTH" type="number" min="10" max="100"></label><label>Change random position every N seconds<input data-key="AERIAL_TEXT_RANDOM_INTERVAL" type="number" min="1" step="1"></label></div></div>`+[1,2,3,4].map(lineCard).join("");
+$("#textOptions").innerHTML=`<div class="stack"><div class="panel-title">Global Text Options</div><label>Font<input data-key="AERIAL_TEXT_FONT"></label><label>Font Size<input data-key="AERIAL_TEXT_SIZE" type="number" step=".25" min=".25"></label><label>Color<input data-key="AERIAL_TEXT_COLOR" type="color"></label></div>`}
 function renderVideos(){const selected=new Set((cfg("AERIAL_SCENES")||"").split(",").filter(Boolean));const hidden=new Set((cfg("AERIAL_HIDDEN_VIDEOS")||"").split(",").filter(Boolean));const counts=Object.fromEntries(scenes.map(s=>[s,0]));state.videos.forEach(v=>counts[v.scene]=(counts[v.scene]||0)+1);sceneChecks.innerHTML=scenes.map(s=>`<label class="row"><input type="checkbox" class="scene" value="${s}" ${!selected.size||selected.has(s)?"checked":""}> ${s} <span class="badge">${counts[s]||0}</span></label>`).join("");videoList.innerHTML=state.videos.map(v=>`<div class="video"><div><div class="title">${v.label}</div><div class="meta">${v.scene} · ${v.id}</div></div><div class="row"><span class="badge ${v.has_h264?"yes":"no"}">H264 ${v.has_h264?"yes":"no"}</span><span class="badge ${v.cached?"yes":"no"}">cached ${v.cached?"yes":"no"}</span><label class="row"><input type="checkbox" class="hide-video" value="${v.id}" ${hidden.has(v.id)?"checked":""}> Hide</label></div></div>`).join("")}
-function renderState(){renderShell();$$("[data-key]").forEach(el=>setValue(el.dataset.key,cfg(el.dataset.key)));$$('input[name="source"]').forEach(el=>el.checked=el.value===cfg("AERIAL_SOURCE"));if(cfg("AERIAL_MSG_TEXT"))setValue("AERIAL_MSG_TEXT",cfg("AERIAL_MSG_TEXT").replaceAll("\\n","\n"));["AERIAL_MSG_COLOR","AERIAL_CLOCK_COLOR","AERIAL_DATE_COLOR","AERIAL_LOC_COLOR"].forEach(k=>{const el=document.querySelector(`[data-key="${k}"]`);if(el&&cfg(k))el.value="#"+cfg(k).replace("#","")});layers.forEach(l=>{const sel=[...document.querySelectorAll("#positionRows select")].find(s=>s.getAttribute("onchange")?.includes(l[1]));if(sel)sel.value=typeValue(l[1])});renderVideos()}
-function collectConfig(){const out={};$$("[data-key]").forEach(el=>{let v=readValue(el.dataset.key);if(el.type==="color")v=v.replace("#","");if(el.tagName==="TEXTAREA")v=v.replaceAll("\n","\\n");out[el.dataset.key]=v});const src=$$('input[name="source"]').find(el=>el.checked);if(src)out.AERIAL_SOURCE=src.value;const checked=$$(".scene").filter(el=>el.checked).map(el=>el.value);out.AERIAL_SCENES=checked.length===scenes.length?"":checked.join(",");out.AERIAL_HIDDEN_VIDEOS=$$(".hide-video").filter(el=>el.checked).map(el=>el.value).join(",");return out}
+function renderProfiles(){profileSelect.innerHTML=(state.profiles||[]).map(p=>`<option value="${p}">${p}</option>`).join("");if(!profileName.value&&profileSelect.value)profileName.value=profileSelect.value}
+function renderState(){renderShell();$$("[data-key]").forEach(el=>setValue(el.dataset.key,cfg(el.dataset.key)));$$('input[name="source"]').forEach(el=>el.checked=el.value===cfg("AERIAL_SOURCE"));["AERIAL_TEXT_COLOR"].forEach(k=>{const el=document.querySelector(`[data-key="${k}"]`);if(el&&cfg(k))el.value="#"+cfg(k).replace("#","")});for(let i=1;i<=4;i++){const prefix=`AERIAL_LINE${i}`;const txt=document.querySelector(`[data-key="${prefix}_TEXT"]`);if(txt)txt.value=cfg(`${prefix}_TEXT`).replaceAll("\\n","\n");const col=document.querySelector(`[data-key="${prefix}_COLOR"]`);if(col)col.value="#"+(cfg(`${prefix}_COLOR`)||cfg("AERIAL_TEXT_COLOR")||"FFFFFF").replace("#","")}updateLineDetails();renderVideos();renderProfiles()}
+function collectConfig(){const out={};$$("[data-key]").forEach(el=>{let v=readValue(el.dataset.key);if(el.type==="color")v=v.replace("#","");if(el.tagName==="TEXTAREA")v=v.replaceAll("\n","\\n");out[el.dataset.key]=v});for(let i=1;i<=4;i++){const prefix=`AERIAL_LINE${i}`;if(out[`${prefix}_USE_DEFAULT_FONT`]==="1"){out[`${prefix}_FONT`]="";out[`${prefix}_FONT_SIZE`]="";out[`${prefix}_COLOR`]=""}}const src=$$('input[name="source"]').find(el=>el.checked);if(src)out.AERIAL_SOURCE=src.value;const checked=$$(".scene").filter(el=>el.checked).map(el=>el.value);out.AERIAL_SCENES=checked.length===scenes.length?"":checked.join(",");out.AERIAL_HIDDEN_VIDEOS=$$(".hide-video").filter(el=>el.checked).map(el=>el.value).join(",");return out}
 function renderStatus(st){statusText.textContent=st.status?.service_active?"Player active":"Player inactive";systemStatus.innerHTML=`<div>Service: ${st.status?.service_raw||"unknown"}</div><div>Playlist videos: ${st.status?.playlist_count??0}</div><div>Disk free: ${Math.round((st.status?.disk?.free||0)/1024/1024/1024)} GB</div><div>mpv fps: ${st.status?.mpv?.est_display_fps??"n/a"}</div><div>drops: ${st.status?.mpv?.drops??"n/a"}</div>`}
-async function load(){state=await api("/api/state");const vids=await api("/api/videos");state.videos=vids.videos||[];renderState();renderStatus(state)}
+async function load(){state=await api("/api/state");const vids=await api("/api/videos");const profiles=await api("/api/profiles");state.videos=vids.videos||[];state.profiles=profiles.profiles||[];renderState();renderStatus(state)}
 $$(".tabbtn").forEach(b=>b.onclick=()=>{$$(".tabbtn").forEach(x=>x.classList.remove("active"));b.classList.add("active");$$(".tab").forEach(x=>x.classList.remove("active"));$("#"+b.dataset.tab).classList.add("active")});
 function wireSide(sideSel,cardClass){$$(sideSel+" button").forEach(b=>b.onclick=()=>{$$(sideSel+" button").forEach(x=>x.classList.remove("active"));b.classList.add("active");$$("."+cardClass).forEach(x=>x.classList.remove("active"));$("#"+b.dataset.card).classList.add("active")})}
 wireSide("#settingsSide","settingsCard");wireSide("#textSide","textSettingsCard");
@@ -714,7 +1164,12 @@ allScenes.onclick=()=>{$$(".scene").forEach(el=>el.checked=true)};noScenes.oncli
 saveApply.onclick=()=>busy(saveApply,async()=>{const res=await api("/api/save",{config:collectConfig()});await load();if(!res.fetch?.ok)throw new Error(res.fetch?.stderr||"playlist fetch failed");toast(`適用しました / playlist ${res.playlist_count??0}本`)});
 fetchNow.onclick=()=>busy(fetchNow,async()=>{const res=await api("/api/fetch");if(!res.ok)throw new Error(res.error||"fetch start failed");await load();toast("取得を開始しました")});
 restartPlayer.onclick=()=>busy(restartPlayer,async()=>{const res=await api("/api/player/restart");if(!res.ok)throw new Error(res.stderr||"restart failed");await load();toast("再起動しました")});
+exportSettings.onclick=()=>busy(exportSettings,async()=>{const res=await api("/api/export-settings");const blob=new Blob([JSON.stringify(res.config,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="config.json";a.click();URL.revokeObjectURL(a.href);toast("Exported Windows config.json")});
+importSettings.onclick=()=>importConfigFile.click();importConfigFile.onchange=()=>{const file=importConfigFile.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>busy(importSettings,async()=>{const res=await api("/api/import-windows-settings",{config:String(reader.result||"")});state.config={...state.config,...res.config};renderState();toast("Imported Windows config.json")});reader.readAsText(file)};
 importDisplay.onclick=()=>importFile.click();importFile.onchange=()=>{const file=importFile.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>busy(importDisplay,async()=>{const res=await api("/api/import-display-settings",{plist:String(reader.result||"")});state.config={...state.config,...res.config};renderState();toast(`Imported ${res.imported_keys?.length||0} display settings`)});reader.readAsText(file)};
+profileSave.onclick=()=>busy(profileSave,async()=>{const name=profileName.value||profileSelect.value;const res=await api("/api/profiles/save",{name,config:collectConfig()});const profiles=await api("/api/profiles");state.profiles=profiles.profiles||[];renderProfiles();toast(`Saved profile ${res.name}`)});
+profileLoad.onclick=()=>busy(profileLoad,async()=>{const name=profileSelect.value||profileName.value;const res=await api("/api/profiles/load",{name});state.config={...state.config,...res.config};renderState();toast(`Loaded profile ${res.name}`)});
+profileDelete.onclick=()=>busy(profileDelete,async()=>{const name=profileSelect.value||profileName.value;const res=await api("/api/profiles/delete",{name});const profiles=await api("/api/profiles");state.profiles=profiles.profiles||[];renderProfiles();toast(`Deleted profile ${res.name}`)});
 reboot.onclick=()=>confirm("Reboot now?")&&busy(reboot,async()=>{const res=await api("/api/reboot");if(!res.ok)throw new Error(res.error||"reboot failed")});
 load().catch(e=>{statusText.textContent=e.message});
 </script>
@@ -786,6 +1241,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(api_state())
         elif parsed.path == "/api/videos":
             self.send_json(api_videos())
+        elif parsed.path == "/api/profiles":
+            self.send_json(list_profiles())
+        elif parsed.path == "/api/export-settings":
+            self.send_json({"ok": True, "config": export_windows_config_json(parse_key_value_config(config_path()))})
         else:
             self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
@@ -810,6 +1269,31 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(plist_text, str):
                     raise ValueError("plist must be a string")
                 self.send_json(import_display_settings_plist(plist_text))
+            elif parsed.path == "/api/import-windows-settings":
+                payload = self.read_json()
+                config_text = payload.get("config")
+                if not isinstance(config_text, str):
+                    raise ValueError("config must be a string")
+                self.send_json(import_windows_config_json(config_text))
+            elif parsed.path == "/api/profiles/save":
+                payload = self.read_json()
+                name = payload.get("name")
+                cfg = payload.get("config")
+                if not isinstance(name, str) or not isinstance(cfg, dict):
+                    raise ValueError("name and config are required")
+                self.send_json(save_profile(name, cfg))
+            elif parsed.path == "/api/profiles/load":
+                payload = self.read_json()
+                name = payload.get("name")
+                if not isinstance(name, str):
+                    raise ValueError("name is required")
+                self.send_json(load_profile(name))
+            elif parsed.path == "/api/profiles/delete":
+                payload = self.read_json()
+                name = payload.get("name")
+                if not isinstance(name, str):
+                    raise ValueError("name is required")
+                self.send_json(delete_profile(name))
             elif parsed.path == "/api/reboot":
                 self.send_json(start_cmd([SYSTEMCTL, "reboot"]))
             else:

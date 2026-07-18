@@ -95,6 +95,137 @@ function M.format_date(now_epoch, cfg)
   return text
 end
 
+local month_names = {
+  full = {
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  },
+  short = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" },
+}
+
+local weekday_names = {
+  full = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" },
+  short = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" },
+  min = { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" },
+}
+
+local function ordinal(value)
+  local n = tonumber(value) or 0
+  local mod100 = n % 100
+  if mod100 >= 11 and mod100 <= 13 then
+    return tostring(n) .. "th"
+  end
+  local mod10 = n % 10
+  if mod10 == 1 then
+    return tostring(n) .. "st"
+  elseif mod10 == 2 then
+    return tostring(n) .. "nd"
+  elseif mod10 == 3 then
+    return tostring(n) .. "rd"
+  end
+  return tostring(n) .. "th"
+end
+
+function M.format_moment(now_epoch, fmt)
+  now_epoch = math.floor(now_epoch)
+  fmt = tostring(fmt or "hh:mm:ss")
+  local t = os.date("*t", now_epoch)
+  local hour12 = t.hour % 12
+  if hour12 == 0 then
+    hour12 = 12
+  end
+  local values = {
+    YYYY = string.format("%04d", t.year),
+    YY = string.format("%02d", t.year % 100),
+    MMMM = month_names.full[t.month],
+    MMM = month_names.short[t.month],
+    MM = pad2(t.month),
+    M = tostring(t.month),
+    DD = pad2(t.day),
+    D = tostring(t.day),
+    dddd = weekday_names.full[t.wday],
+    ddd = weekday_names.short[t.wday],
+    dd = weekday_names.min[t.wday],
+    d = tostring(t.wday - 1),
+    Do = ordinal(t.day),
+    HH = pad2(t.hour),
+    H = tostring(t.hour),
+    hh = pad2(hour12),
+    h = tostring(hour12),
+    mm = pad2(t.min),
+    m = tostring(t.min),
+    ss = pad2(t.sec),
+    s = tostring(t.sec),
+    A = t.hour >= 12 and "PM" or "AM",
+    a = t.hour >= 12 and "pm" or "am",
+  }
+  local tokens = {
+    "YYYY",
+    "MMMM",
+    "dddd",
+    "MMM",
+    "ddd",
+    "Do",
+    "YY",
+    "MM",
+    "DD",
+    "dd",
+    "HH",
+    "hh",
+    "mm",
+    "ss",
+    "M",
+    "D",
+    "d",
+    "H",
+    "h",
+    "m",
+    "s",
+    "A",
+    "a",
+  }
+  local out = {}
+  local i = 1
+  while i <= #fmt do
+    local ch = fmt:sub(i, i)
+    if ch == "[" then
+      local close = fmt:find("%]", i + 1)
+      if close then
+        out[#out + 1] = fmt:sub(i + 1, close - 1)
+        i = close + 1
+      else
+        out[#out + 1] = ch
+        i = i + 1
+      end
+    else
+      local matched = false
+      for _, token in ipairs(tokens) do
+        if fmt:sub(i, i + #token - 1) == token then
+          out[#out + 1] = values[token]
+          i = i + #token
+          matched = true
+          break
+        end
+      end
+      if not matched then
+        out[#out + 1] = ch
+        i = i + 1
+      end
+    end
+  end
+  return table.concat(out)
+end
+
 function M.unescape(text)
   local raw = tostring(text or "")
   local out = {}
@@ -119,6 +250,78 @@ function M.unescape(text)
     end
   end
   return table.concat(out)
+end
+
+function M.legacy_poi_points(raw)
+  local points = {}
+  for seconds, text in tostring(raw or ""):gmatch('"([^"]+)":"([^"]*)"') do
+    local numeric_seconds = tonumber(seconds)
+    if numeric_seconds then
+      points[#points + 1] = {
+        t = math.floor(numeric_seconds),
+        key = text,
+        text_en = text,
+        text_ja = "",
+      }
+    end
+  end
+  table.sort(points, function(a, b)
+    return (tonumber(a.t) or 0) < (tonumber(b.t) or 0)
+  end)
+  return points
+end
+
+function M.select_poi_point(points, playback_time)
+  if type(points) ~= "table" or #points == 0 then
+    return nil
+  end
+  local position = tonumber(playback_time) or 0
+  local selected = nil
+  for _, point in ipairs(points) do
+    local t = tonumber(point.t) or 0
+    if t <= position then
+      selected = point
+    elseif selected == nil then
+      return point
+    else
+      return selected
+    end
+  end
+  return selected or points[1]
+end
+
+function M.poi_text_for_language(point, lang, fallback)
+  if type(point) ~= "table" then
+    return fallback or ""
+  end
+  local preferred = tostring(lang or "ja")
+  local text = point["text_" .. preferred]
+  if text ~= nil and text ~= "" then
+    return text
+  end
+  if preferred ~= "en" and point.text_en ~= nil and point.text_en ~= "" then
+    return point.text_en
+  end
+  return fallback or ""
+end
+
+function M.location_text(row, mode, playback_time, lang, filename_fallback)
+  if type(row) ~= "table" then
+    return filename_fallback or ""
+  end
+  local fallback = row.accessibilityLabel or row.label or filename_fallback or ""
+  local loc_mode = mode or "accessibilityLabel"
+  if loc_mode == "filename" then
+    return filename_fallback or fallback
+  end
+  if loc_mode == "name" or loc_mode == "videoName" then
+    return row.name ~= nil and row.name ~= "" and row.name or fallback
+  end
+  if loc_mode == "poi" or loc_mode == "information" then
+    local point = M.select_poi_point(row.pointsOfInterest, playback_time)
+    return M.poi_text_for_language(point, lang or "ja", fallback)
+  end
+  return fallback
 end
 
 function M.alignment_for(corner)
@@ -206,6 +409,37 @@ function M.build_layer_ass_line(opts)
     opts.x or 0,
     opts.y or 0,
     M.ass_escape(opts.text or "")
+  )
+end
+
+function M.build_text_ass_line(opts)
+  opts = opts or {}
+  local lines = opts.lines or {}
+  local corner = opts.corner or "bottomRight"
+  local fragments = {}
+  for _, line in ipairs(lines) do
+    if line.text ~= nil and line.text ~= "" then
+      local primary = M.rgb_to_ass_bgr(line.color or opts.color or "FFFFFF")
+      local shadow = M.rgb_to_ass_bgr(opts.shadow_color or "444444")
+      fragments[#fragments + 1] = string.format(
+        "{\\fs%d\\b0\\bord%d\\shad%d\\1c%s\\1a&H00&\\3c%s\\3a&HFF&\\4c%s\\4a&H00&%s}%s",
+        line.font_size or opts.font_size or 38,
+        opts.border or 0,
+        opts.shadow or 1,
+        primary,
+        shadow,
+        shadow,
+        M.font_tag(line.font or opts.font or ""),
+        M.ass_escape(line.text or "")
+      )
+    end
+  end
+  return string.format(
+    "{\\an%d\\pos(%d,%d)}%s",
+    opts.alignment or M.alignment_for(corner),
+    opts.x or 0,
+    opts.y or 0,
+    table.concat(fragments, "\\N")
   )
 end
 

@@ -1,6 +1,6 @@
 # aerial-signage
 
-`aerial-signage` turns a Raspberry Pi 4 or 5 into a fullscreen Apple Aerial video loop with configurable text overlays. Clock and date overlays render the same offset moment (`now + AERIAL_CLOCK_OFFSET_MINUTES`), defaulting to real time (`0` minutes) for Windows parity.
+`aerial-signage` turns a Raspberry Pi 4 or 5 into a fullscreen Apple Aerial video loop with configurable Windows-parity text overlays. Four text lines share one 9-point position grid, can use Random positioning, and all Time-Date lines render the same offset moment (`now + AERIAL_CLOCK_OFFSET_MINUTES`), defaulting to real time (`0` minutes).
 
 ## Why HEVC
 
@@ -23,26 +23,16 @@ The config file is shell `KEY=VALUE` format. The installed path is `/etc/aerial-
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `AERIAL_CLOCK_ENABLED` | `1` shows the clock, `0` hides it. | `1` |
-| `AERIAL_CLOCK_OFFSET_MINUTES` | Minutes added to real time for clock and date overlays; negative values are allowed. | `0` |
-| `AERIAL_CLOCK_FORMAT` | `24h`, `12h`, or `custom`. | `24h` |
-| `AERIAL_CLOCK_SECONDS` | `1` shows seconds. | `0` |
-| `AERIAL_CLOCK_HIDE_AMPM` | `1` hides AM/PM in `12h` mode. | `0` |
-| `AERIAL_CLOCK_CUSTOM_FORMAT` | `strftime` string for `custom` mode. | `%H:%M` |
-| `AERIAL_CLOCK_CORNER` | `topLeft`, `topCenter`, `topRight`, `bottomLeft`, `bottomCenter`, `bottomRight`, `left`, `right`, `screenCenter`, or `random`. Windows aliases like `topmiddle` are accepted. | `bottomLeft` |
-| `AERIAL_CLOCK_FONT_SIZE` | ASS font size at 1920x1080 reference resolution. | `50` |
-| `AERIAL_CLOCK_FONT` | Optional font family; empty uses mpv default. | empty |
-| `AERIAL_CLOCK_MARGIN` | Pixel margin at 1920x1080 reference resolution. | `60` |
-| `AERIAL_CLOCK_COLOR` | Clock color as `RRGGBB`. | `FFFFFF` |
-| `AERIAL_DATE_ENABLED` | `1` shows the date, `0` hides it. | `0` |
-| `AERIAL_DATE_FORMAT` | `textual`, `compact`, `numeric`, or `custom`. | `textual` |
-| `AERIAL_DATE_CUSTOM_FORMAT` | `strftime` string for `custom` date mode. | `%Y-%m-%d` |
-| `AERIAL_DATE_WITH_YEAR` | `1` includes the year where the selected format supports it. | `0` |
-| `AERIAL_DATE_LANG` | `ja` or `en` for textual dates. | `ja` |
-| `AERIAL_LOC_ENABLED` | `1` shows video information, `0` hides it. | `0` |
-| `AERIAL_LOC_MODE` | `accessibilityLabel` (Label), `name` (Video Name), `poi` (Location Information), or `filename`. | `accessibilityLabel` |
-| `AERIAL_MSG_ENABLED` | `1` shows the message overlay, `0` hides it. | `0` |
-| `AERIAL_MSG_TEXT` | Message text; use literal `\n` for line breaks. | empty |
+| `AERIAL_TEXT_POSITION` | Shared position: `topLeft`, `topCenter`, `topRight`, `bottomLeft`, `bottomCenter`, `bottomRight`, `left`, `right`, `screenCenter`, or `random`. | `bottomLeft` |
+| `AERIAL_TEXT_RANDOM_INTERVAL` | Seconds between Random position changes. | `30` |
+| `AERIAL_TEXT_MAX_WIDTH` | Windows-compatible max-width percent setting. | `50` |
+| `AERIAL_TEXT_FONT` / `AERIAL_TEXT_SIZE` / `AERIAL_TEXT_COLOR` | Global font, Windows size multiplier, and `RRGGBB` color. | `Segoe UI` / `2` / `FFFFFF` |
+| `AERIAL_CLOCK_OFFSET_MINUTES` | Minutes added to real time for every Time-Date line; negative values are allowed. | `0` |
+| `AERIAL_LINE{1..4}_TYPE` | `none`, `timedate`, `information` (POI/label/filename), `videoname`, or `message`. | `none` |
+| `AERIAL_LINE{1..4}_FORMAT` | Moment.js-style format for `timedate` lines. Supported tokens: `YYYY YY MMMM MMM MM M DD D dddd ddd dd d Do HH H hh h mm m ss s A a`. | `hh:mm:ss` |
+| `AERIAL_LINE{1..4}_TEXT` | Message text; use literal `\n` for line breaks. | empty |
+| `AERIAL_LINE{1..4}_INFO_MODE` | `poi`, `accessibilityLabel`, or `filename` for `information` lines. | `poi` |
+| `AERIAL_LINE{1..4}_USE_DEFAULT_FONT` | `1` uses global Text Options; `0` enables per-line font, size multiplier, and color. | `1` |
 | `AERIAL_QUALITY` | `1080-sdr`, `1080-hdr`, `4k-sdr`, `4k-hdr`, or `1080-h264`. | `1080-sdr` |
 | `AERIAL_SOURCE` | `classic63`, `tvos16`, or `community`. The web UI recommends `tvos16` for the Windows 114-video set. | `classic63` |
 | `AERIAL_MANIFEST_URL` | JSON manifest URL. | Apple Aerial set (`sylvan.apple.com`) |
@@ -56,7 +46,7 @@ The config file is shell `KEY=VALUE` format. The installed path is `/etc/aerial-
 | `AERIAL_MPV_HWDEC` | `drm-copy` for Pi HEVC hardware decode; use `auto` for desktop testing. | `drm-copy` |
 | `AERIAL_MPV_EXTRA` | Extra raw mpv flags. | empty |
 
-The mapping between macOS DisplaySettings plist raw enums, Windows UI values, and Pi env strings is documented in `docs/display-settings-mapping.md`. The web UI can import an exported `AerialDisplaySettings.plist` through **Advanced Settings > Import Display Settings...** and maps recognized display keys into the existing Save & Apply flow.
+The mapping between macOS DisplaySettings plist raw enums, Windows UI values, and Pi env strings is documented in `docs/display-settings-mapping.md`. The web UI can import macOS `AerialDisplaySettings.plist`, import/export Windows-compatible `config.json`, and manage named video selection Profiles under `/etc/aerial-signage/profiles/`.
 
 ## Raspberry Pi 3 (experimental)
 

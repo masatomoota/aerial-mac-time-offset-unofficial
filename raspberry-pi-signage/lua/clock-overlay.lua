@@ -29,7 +29,7 @@ local ok, err = pcall(function()
     if value == nil then
       return default
     end
-    return math.floor(value)
+    return value
   end
 
   local function base_position(corner, margin)
@@ -59,6 +59,7 @@ local ok, err = pcall(function()
   end
 
   local labels = {}
+
   local function basename(path)
     return tostring(path or ""):match("([^/\\]+)$") or tostring(path or "")
   end
@@ -67,10 +68,49 @@ local ok, err = pcall(function()
     return tostring(path or ""):gsub("%.[^%.]+$", "")
   end
 
-  local function load_labels(path)
+  local function read_file(path)
     local handle = io.open(path, "r")
     if not handle then
-      return
+      return nil
+    end
+    local text = handle:read("*a")
+    handle:close()
+    return text
+  end
+
+  local function load_labels_json(path)
+    local text = read_file(path)
+    if not text then
+      return false
+    end
+    local ok_utils, utils = pcall(require, "mp.utils")
+    if not ok_utils or not utils or not utils.parse_json then
+      return false
+    end
+    local payload = utils.parse_json(text)
+    if type(payload) ~= "table" or type(payload.videos) ~= "table" then
+      return false
+    end
+    for _, item in ipairs(payload.videos) do
+      if type(item) == "table" and item.file then
+        local label = item.accessibilityLabel or item.label or ""
+        labels[item.file] = {
+          accessibilityLabel = label,
+          label = label,
+          id = item.id or "",
+          scene = item.scene or "",
+          name = item.name ~= "" and item.name or label,
+          pointsOfInterest = type(item.pointsOfInterest) == "table" and item.pointsOfInterest or {},
+        }
+      end
+    end
+    return true
+  end
+
+  local function load_labels_tsv(path)
+    local handle = io.open(path, "r")
+    if not handle then
+      return false
     end
     for line in handle:lines() do
       local file, label, asset_id, scene, name, poi = line:match("^([^\t]+)\t([^\t]*)\t?([^\t]*)\t?([^\t]*)\t?([^\t]*)\t?(.*)$")
@@ -81,229 +121,156 @@ local ok, err = pcall(function()
           id = asset_id or "",
           scene = scene or "",
           name = name ~= "" and name or label,
-          poi = poi or "",
+          pointsOfInterest = clock.legacy_poi_points(poi or ""),
         }
       end
     end
     handle:close()
+    return true
   end
 
-  load_labels(env("AERIAL_LABELS_FILE", "/var/lib/aerial-signage/labels.tsv"))
-
-  local osd_border = number_env("AERIAL_OSD_BORDER", 0)
-  local osd_shadow = number_env("AERIAL_OSD_SHADOW", 1)
-
-  local layer_specs = {
-    CLOCK = {
-      prefix = "AERIAL_CLOCK",
-      default_enabled = "1",
-      default_corner = "bottomLeft",
-      default_size = 50,
-      default_margin = 60,
-    },
-    DATE = {
-      prefix = "AERIAL_DATE",
-      default_enabled = "0",
-      default_corner = "bottomLeft",
-      default_size = 25,
-      default_margin = 60,
-    },
-    MSG = {
-      prefix = "AERIAL_MSG",
-      default_enabled = "0",
-      default_corner = "bottomRight",
-      default_size = 24,
-      default_margin = 60,
-    },
-    LOC = {
-      prefix = "AERIAL_LOC",
-      default_enabled = "0",
-      default_corner = "topRight",
-      default_size = 28,
-      default_margin = 60,
-    },
-  }
-
-  local function build_layer(name)
-    local spec = layer_specs[name]
-    if env(spec.prefix .. "_ENABLED", spec.default_enabled) ~= "1" then
-      return nil
+  local function load_labels(path)
+    if path:match("%.json$") and load_labels_json(path) then
+      return
     end
-    local overlay = mp.create_osd_overlay("ass-events")
-    overlay.res_x = 1920
-    overlay.res_y = 1080
-    return {
-      name = name,
-      overlay = overlay,
-      corner = clock.normalize_corner(env(spec.prefix .. "_CORNER", spec.default_corner)),
-      font_size = number_env(spec.prefix .. "_FONT_SIZE", spec.default_size),
-      font = env(spec.prefix .. "_FONT", "Segoe UI"),
-      color = env(spec.prefix .. "_COLOR", "FFFFFF"),
-      margin = number_env(spec.prefix .. "_MARGIN", spec.default_margin),
-      text = "",
+    if path:match("%.tsv$") then
+      local json_path = path:gsub("%.tsv$", ".json")
+      if load_labels_json(json_path) then
+        return
+      end
+    end
+    load_labels_tsv(path)
+  end
+
+  load_labels(env("AERIAL_LABELS_FILE", "/var/lib/aerial-signage/labels.json"))
+
+  local overlay = mp.create_osd_overlay("ass-events")
+  overlay.res_x = 1920
+  overlay.res_y = 1080
+
+  local offset_minutes = clock.offset_minutes_from_env(os.getenv("AERIAL_CLOCK_OFFSET_MINUTES"))
+  local osd_border = math.floor(number_env("AERIAL_OSD_BORDER", 0))
+  local osd_shadow = math.floor(number_env("AERIAL_OSD_SHADOW", 1))
+  local global_font = env("AERIAL_TEXT_FONT", "Segoe UI")
+  local global_size = number_env("AERIAL_TEXT_SIZE", 2)
+  local global_color = env("AERIAL_TEXT_COLOR", "FFFFFF")
+  local margin = math.floor(number_env("AERIAL_TEXT_MARGIN", 60))
+  local max_width = env("AERIAL_TEXT_MAX_WIDTH", "50")
+  local random_interval = math.max(1, math.floor(number_env("AERIAL_TEXT_RANDOM_INTERVAL", 30)))
+  local configured_position = clock.normalize_corner(env("AERIAL_TEXT_POSITION", "bottomLeft"))
+  local active_position = configured_position
+  local random_positions = { "topLeft", "topCenter", "topRight", "bottomLeft", "bottomCenter", "bottomRight", "left", "right", "screenCenter" }
+
+  local line_specs = {}
+  for i = 1, 4 do
+    local prefix = "AERIAL_LINE" .. tostring(i)
+    line_specs[#line_specs + 1] = {
+      type = env(prefix .. "_TYPE", "none"),
+      format = env(prefix .. "_FORMAT", "hh:mm:ss"),
+      text = clock.unescape(env(prefix .. "_TEXT", "")),
+      info_mode = env(prefix .. "_INFO_MODE", "poi"),
+      default_font = truthy(env(prefix .. "_USE_DEFAULT_FONT", "1")),
+      font = env(prefix .. "_FONT", ""),
+      font_size = number_env(prefix .. "_FONT_SIZE", global_size),
+      color = env(prefix .. "_COLOR", ""),
     }
   end
 
-  local layers = {}
-  for _, name in ipairs({ "CLOCK", "DATE", "MSG", "LOC" }) do
-    local layer = build_layer(name)
-    if layer then
-      layers[name] = layer
-    end
-  end
-
-  local offset_minutes = clock.offset_minutes_from_env(os.getenv("AERIAL_CLOCK_OFFSET_MINUTES"))
-  local clock_cfg = {
-    format = env("AERIAL_CLOCK_FORMAT", "24h"),
-    seconds = truthy(env("AERIAL_CLOCK_SECONDS", "0")),
-    hide_ampm = truthy(env("AERIAL_CLOCK_HIDE_AMPM", "0")),
-    custom_format = env("AERIAL_CLOCK_CUSTOM_FORMAT", "%H:%M"),
-  }
-  local date_cfg = {
-    format = env("AERIAL_DATE_FORMAT", "textual"),
-    with_year = truthy(env("AERIAL_DATE_WITH_YEAR", "0")),
-    lang = env("AERIAL_DATE_LANG", "ja"),
-    custom_format = env("AERIAL_DATE_CUSTOM_FORMAT", "%Y-%m-%d"),
-  }
-
-  if layers.MSG then
-    layers.MSG.text = clock.unescape(env("AERIAL_MSG_TEXT", "Studio Vibes Wi-Fi\\nSSID : fcm-dkym-booth\\nPW : dkymfcm117"))
-  end
-
-  math.randomseed(os.time())
-  local random_positions = { "topLeft", "topCenter", "topRight", "bottomLeft", "bottomCenter", "bottomRight", "left", "right", "screenCenter" }
-  for _, layer in pairs(layers) do
-    if layer.corner == "random" then
-      layer.corner = random_positions[math.random(#random_positions)]
-    end
-  end
-
-  local function current_location_text()
+  local function current_video_text(mode)
     local path = nil
     if mp and mp.get_property then
       path = mp.get_property("path") or mp.get_property("filename")
     end
     local file = basename(path)
     local row = labels[file]
-    local mode = env("AERIAL_LOC_MODE", "accessibilityLabel")
+    local lang = env("AERIAL_DATE_LANG", "ja")
+    local position = 0
+    if mp and mp.get_property_number then
+      position = mp.get_property_number("playback-time", nil) or mp.get_property_number("time-pos", 0) or 0
+    end
     if row then
-      if mode == "filename" then
-        return strip_ext(file)
-      elseif mode == "name" then
-        return row.name ~= "" and row.name or row.accessibilityLabel
-      elseif mode == "poi" then
-        if row.poi ~= "" then
-          local position = 0
-          if mp and mp.get_property_number then
-            position = mp.get_property_number("time-pos", 0) or 0
-          end
-          local best_time = -1
-          local best_text = ""
-          for seconds, text in row.poi:gmatch('"([^"]+)":"([^"]*)"') do
-            local numeric_seconds = tonumber(seconds)
-            if numeric_seconds and numeric_seconds <= position and numeric_seconds >= best_time then
-              best_time = numeric_seconds
-              best_text = text
-            end
-          end
-          if best_text ~= "" then
-            return best_text
-          end
-        end
-        return row.accessibilityLabel
-      end
-      return row.accessibilityLabel ~= "" and row.accessibilityLabel or strip_ext(file)
+      return clock.location_text(row, mode, position, lang, strip_ext(file))
     end
     return strip_ext(file)
   end
 
-  local function refresh_dynamic_text()
+  local function renderable_lines()
     local display_epoch = os.time() + offset_minutes * 60
-    if layers.CLOCK then
-      layers.CLOCK.text = clock.format_time(display_epoch, clock_cfg)
-    end
-    if layers.DATE then
-      layers.DATE.text = clock.format_date(display_epoch, date_cfg)
-    end
-  end
-
-  local function refresh_file_text()
-    if layers.LOC then
-      layers.LOC.text = current_location_text()
-    end
-  end
-
-  local function stack_offsets()
-    local offsets = {}
-    local occupied = {}
-    for _, name in ipairs({ "CLOCK", "DATE", "MSG", "LOC" }) do
-      local layer = layers[name]
-      if layer then
-        local corner = layer.corner
-        occupied[corner] = occupied[corner] or 0
-        offsets[name] = occupied[corner]
-        occupied[corner] = occupied[corner] + math.floor(layer.font_size * 1.4)
+    local lines = {}
+    for _, spec in ipairs(line_specs) do
+      local line_type = tostring(spec.type or "none")
+      local text = ""
+      if line_type == "timedate" or line_type == "time" then
+        text = clock.format_moment(display_epoch, spec.format)
+      elseif line_type == "videoname" or line_type == "videoName" then
+        text = current_video_text("videoName")
+      elseif line_type == "information" or line_type == "poi" then
+        text = current_video_text(spec.info_mode ~= "" and spec.info_mode or "poi")
+      elseif line_type == "message" or line_type == "text" then
+        text = spec.text
+      end
+      if text ~= "" then
+        local font = spec.default_font and global_font or (spec.font ~= "" and spec.font or global_font)
+        local size_multiplier = spec.default_font and global_size or spec.font_size
+        local color = spec.default_font and global_color or (spec.color ~= "" and spec.color or global_color)
+        lines[#lines + 1] = {
+          text = text,
+          font = font,
+          font_size = math.floor(25 * tonumber(size_multiplier or global_size)),
+          color = color,
+        }
       end
     end
-    return offsets
+    return lines
+  end
+
+  local function choose_random_position()
+    active_position = random_positions[math.random(#random_positions)]
   end
 
   local function render_all()
-    local offsets = stack_offsets()
-    for _, name in ipairs({ "CLOCK", "DATE", "MSG", "LOC" }) do
-      local layer = layers[name]
-      if layer then
-        local x, y = base_position(layer.corner, layer.margin)
-        local offset = offsets[name] or 0
-        if layer.corner == "bottomLeft" or layer.corner == "bottomCenter" or layer.corner == "bottomRight" then
-          y = y - offset
-        elseif layer.corner == "topLeft" or layer.corner == "topCenter" or layer.corner == "topRight" or layer.corner == "screenCenter" or layer.corner == "left" or layer.corner == "right" or layer.corner == "absTopRight" then
-          y = y + offset
-        end
-        layer.overlay.data = clock.build_layer_ass_line({
-          corner = layer.corner,
-          font_size = layer.font_size,
-          border = osd_border,
-          shadow = osd_shadow,
-          color = layer.color,
-          shadow_color = "444444",
-          font = layer.font,
-          x = x,
-          y = y,
-          text = layer.text,
-        })
-        layer.overlay:update()
-      end
+    if configured_position == "random" and not active_position or active_position == "random" then
+      choose_random_position()
     end
+    local lines = renderable_lines()
+    local x, y = base_position(active_position, margin)
+    overlay.data = clock.build_text_ass_line({
+      corner = active_position,
+      font_size = math.floor(25 * global_size),
+      border = osd_border,
+      shadow = osd_shadow,
+      color = global_color,
+      shadow_color = "444444",
+      font = global_font,
+      x = x,
+      y = y,
+      max_width = max_width,
+      lines = lines,
+    })
+    overlay:update()
   end
 
-  local function safe_update_dynamic()
-    local update_ok, update_err = pcall(function()
-      refresh_dynamic_text()
-      render_all()
-    end)
+  local function safe_render()
+    local update_ok, update_err = pcall(render_all)
     if not update_ok and mp and mp.msg and mp.msg.error then
       mp.msg.error("overlay update failed: " .. tostring(update_err))
     end
   end
 
-  local function safe_update_file()
-    local update_ok, update_err = pcall(function()
-      refresh_file_text()
-      render_all()
+  math.randomseed(os.time())
+  if configured_position == "random" then
+    choose_random_position()
+    mp.add_periodic_timer(random_interval, function()
+      choose_random_position()
+      safe_render()
     end)
-    if not update_ok and mp and mp.msg and mp.msg.error then
-      mp.msg.error("location overlay update failed: " .. tostring(update_err))
-    end
   end
 
-  refresh_file_text()
-  safe_update_dynamic()
-  if layers.CLOCK or layers.DATE then
-    mp.add_periodic_timer(1, safe_update_dynamic)
-  end
-  if layers.LOC then
-    mp.register_event("file-loaded", safe_update_file)
+  safe_render()
+  mp.add_periodic_timer(1, safe_render)
+  mp.register_event("file-loaded", safe_render)
+  if mp.observe_property then
+    mp.observe_property("playback-time", "number", safe_render)
   end
 end)
 

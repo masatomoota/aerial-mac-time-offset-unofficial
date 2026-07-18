@@ -205,6 +205,57 @@ class FetchTests(unittest.TestCase):
             fetch.write_labels([("a.mov", "City\tLabel", "asset-1", "city", "City Name", '{"0":"POI"}')], labels)
             self.assertEqual(labels.read_text(encoding="utf-8"), 'a.mov\tCity Label\tasset-1\tcity\tCity Name\t{"0":"POI"}\n')
 
+    def test_apple_strings_parser_text_fixture(self):
+        raw = (
+            '\ufeff/* comment */\n'
+            '"A016_C009_0" = "Cape\\nSeals";\n'
+            '"QUOTE" = "A \\"quoted\\" value and \\U65E5"; // trailing\n'
+        ).encode("utf-16")
+        parsed = fetch.parse_apple_strings_bytes(raw)
+        self.assertEqual(parsed["A016_C009_0"], "Cape\nSeals")
+        self.assertEqual(parsed["QUOTE"], 'A "quoted" value and 日')
+
+    def test_apple_strings_parser_utf16le_without_bom(self):
+        raw = '"K" = "V";\n'.encode("utf-16-le")
+        self.assertEqual(fetch.parse_apple_strings_bytes(raw), {"K": "V"})
+
+    def test_entry_poi_rows_resolves_localized_strings(self):
+        entry = {
+            "id": "asset-1",
+            "accessibilityLabel": "Label",
+            "pointsOfInterest": {"20": "KEY_20", "0": "KEY_0", "30": "Literal location"},
+        }
+        strings = {
+            "ja": {"KEY_0": "日本語0"},
+            "en": {"KEY_0": "English 0", "KEY_20": "English 20"},
+        }
+        rows = fetch.entry_poi_rows(entry, strings)
+        self.assertEqual([row["t"] for row in rows], [0, 20, 30])
+        self.assertEqual(rows[0], {"t": 0, "key": "KEY_0", "text_ja": "日本語0", "text_en": "English 0"})
+        self.assertEqual(rows[1], {"t": 20, "key": "KEY_20", "text_ja": "", "text_en": "English 20"})
+        self.assertEqual(rows[2], {"t": 30, "key": "Literal location", "text_ja": "", "text_en": "Literal location"})
+
+    def test_labels_json_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            labels = pathlib.Path(tmp) / "labels.json"
+            fetch.write_labels_json(
+                [
+                    {
+                        "file": "a.mov",
+                        "label": "City",
+                        "accessibilityLabel": "City",
+                        "id": "asset-1",
+                        "scene": "city",
+                        "name": "City Name",
+                        "pointsOfInterest": [{"t": 10, "key": "K", "text_ja": "日本語", "text_en": "English"}],
+                    }
+                ],
+                labels,
+            )
+            payload = json.loads(labels.read_text(encoding="utf-8"))
+        self.assertEqual(payload["videos"][0]["label"], "City")
+        self.assertEqual(payload["videos"][0]["pointsOfInterest"][0]["text_ja"], "日本語")
+
     def test_entry_name_and_poi_json(self):
         entry = {"id": "asset-1", "accessibilityLabel": "Label", "name": "Video Name", "pointsOfInterest": {"10": "Point"}}
         self.assertEqual(fetch.entry_name(entry), "Video Name")

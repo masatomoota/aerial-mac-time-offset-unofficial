@@ -1,6 +1,6 @@
 # aerial-signage
 
-`aerial-signage` は Raspberry Pi 4/5 を、Apple Aerial 動画を全画面でループ再生するデジタルサイネージにします。時計と日付のオーバーレイは同じ表示時刻（`now + AERIAL_CLOCK_OFFSET_MINUTES`）を使い、Windows 版に合わせて既定は実時刻（`0` 分）です。
+`aerial-signage` は Raspberry Pi 4/5 を、Apple Aerial 動画を全画面でループ再生するデジタルサイネージにします。テキストは Windows 版に合わせた 4 行モデルで、9 点の共有 Position、Random 配置、行ごとの Time-Date / Information / Video Name / Message を扱えます。すべての Time-Date 行は同じ表示時刻（`now + AERIAL_CLOCK_OFFSET_MINUTES`）を使います。
 
 ## HEVC を標準にする理由
 
@@ -23,26 +23,16 @@ sudo reboot
 
 | 変数 | 意味 | 既定値 |
 | --- | --- | --- |
-| `AERIAL_CLOCK_ENABLED` | `1` で時計表示、`0` で非表示。 | `1` |
-| `AERIAL_CLOCK_OFFSET_MINUTES` | 時計と日付に使う表示時刻へ加える分数。負数も可能。 | `0` |
-| `AERIAL_CLOCK_FORMAT` | `24h`、`12h`、`custom`。 | `24h` |
-| `AERIAL_CLOCK_SECONDS` | `1` で秒を表示。 | `0` |
-| `AERIAL_CLOCK_HIDE_AMPM` | `12h` 形式で `1` にすると AM/PM を非表示。 | `0` |
-| `AERIAL_CLOCK_CUSTOM_FORMAT` | `custom` 形式で使う `strftime` 文字列。 | `%H:%M` |
-| `AERIAL_CLOCK_CORNER` | `topLeft`、`topCenter`、`topRight`、`bottomLeft`、`bottomCenter`、`bottomRight`、`left`、`right`、`screenCenter`、`random`。`topmiddle` などの Windows 別名も可。 | `bottomLeft` |
-| `AERIAL_CLOCK_FONT_SIZE` | 1920x1080 基準の ASS フォントサイズ。 | `50` |
-| `AERIAL_CLOCK_FONT` | 任意のフォント名。空なら mpv 既定。 | 空 |
-| `AERIAL_CLOCK_MARGIN` | 1920x1080 基準の端からの余白ピクセル。 | `60` |
-| `AERIAL_CLOCK_COLOR` | 時計色。`RRGGBB`。 | `FFFFFF` |
-| `AERIAL_DATE_ENABLED` | `1` で日付表示、`0` で非表示。 | `0` |
-| `AERIAL_DATE_FORMAT` | `textual`、`compact`、`numeric`、`custom`。 | `textual` |
-| `AERIAL_DATE_CUSTOM_FORMAT` | `custom` 日付で使う `strftime` 文字列。 | `%Y-%m-%d` |
-| `AERIAL_DATE_WITH_YEAR` | `1` で対応フォーマットに年を含める。 | `0` |
-| `AERIAL_DATE_LANG` | テキスト日付の言語。`ja` または `en`。 | `ja` |
-| `AERIAL_LOC_ENABLED` | `1` で動画情報を表示、`0` で非表示。 | `0` |
-| `AERIAL_LOC_MODE` | `accessibilityLabel`（Label）、`name`（Video Name）、`poi`（Location Information）、`filename`。 | `accessibilityLabel` |
-| `AERIAL_MSG_ENABLED` | `1` でメッセージ表示、`0` で非表示。 | `0` |
-| `AERIAL_MSG_TEXT` | メッセージ本文。改行はリテラル `\n`。 | 空 |
+| `AERIAL_TEXT_POSITION` | 共有 Position。`topLeft`、`topCenter`、`topRight`、`bottomLeft`、`bottomCenter`、`bottomRight`、`left`、`right`、`screenCenter`、`random`。 | `bottomLeft` |
+| `AERIAL_TEXT_RANDOM_INTERVAL` | Random 配置の変更間隔（秒）。 | `30` |
+| `AERIAL_TEXT_MAX_WIDTH` | Windows 互換の最大幅（%）。 | `50` |
+| `AERIAL_TEXT_FONT` / `AERIAL_TEXT_SIZE` / `AERIAL_TEXT_COLOR` | グローバルのフォント、Windows 互換サイズ倍率、`RRGGBB` 色。 | `Segoe UI` / `2` / `FFFFFF` |
+| `AERIAL_CLOCK_OFFSET_MINUTES` | すべての Time-Date 行に加える分数。負数も可能。 | `0` |
+| `AERIAL_LINE{1..4}_TYPE` | `none`、`timedate`、`information`（POI/Label/Filename）、`videoname`、`message`。 | `none` |
+| `AERIAL_LINE{1..4}_FORMAT` | `timedate` 行の Moment.js 形式。対応 token: `YYYY YY MMMM MMM MM M DD D dddd ddd dd d Do HH H hh h mm m ss s A a`。 | `hh:mm:ss` |
+| `AERIAL_LINE{1..4}_TEXT` | メッセージ本文。改行はリテラル `\n`。 | 空 |
+| `AERIAL_LINE{1..4}_INFO_MODE` | `information` 行で使う `poi`、`accessibilityLabel`、`filename`。 | `poi` |
+| `AERIAL_LINE{1..4}_USE_DEFAULT_FONT` | `1` でグローバル Text Options、`0` で行ごとのフォント/サイズ倍率/色。 | `1` |
 | `AERIAL_QUALITY` | `1080-sdr`、`1080-hdr`、`4k-sdr`、`4k-hdr`、`1080-h264`。 | `1080-sdr` |
 | `AERIAL_SOURCE` | `classic63`、`tvos16`、`community`。Web UI では Windows と同じ 114 本セットの `tvos16` を推奨。 | `classic63` |
 | `AERIAL_MANIFEST_URL` | JSON マニフェスト URL。 | Apple Aerial 版（`sylvan.apple.com`） |
@@ -56,7 +46,7 @@ sudo reboot
 | `AERIAL_MPV_HWDEC` | Pi の HEVC ハードウェアデコードでは `drm-copy`。デスクトップ検証では `auto`。 | `drm-copy` |
 | `AERIAL_MPV_EXTRA` | 追加の mpv フラグ。 | 空 |
 
-macOS DisplaySettings plist の raw enum、Windows UI 値、Pi env 文字列の対応は `docs/display-settings-mapping.md` にまとめています。Web UI の **Advanced Settings > Import Display Settings...** から `AerialDisplaySettings.plist` を読み込み、認識できる表示設定だけを既存の Save & Apply フローへ反映できます。
+macOS DisplaySettings plist の raw enum、Windows UI 値、Pi env 文字列の対応は `docs/display-settings-mapping.md` にまとめています。Web UI では macOS `AerialDisplaySettings.plist` の読み込み、Windows 互換 `config.json` の import/export、`/etc/aerial-signage/profiles/` 以下の動画選択 Profiles 管理ができます。
 
 ## Raspberry Pi 3（実験的対応）
 

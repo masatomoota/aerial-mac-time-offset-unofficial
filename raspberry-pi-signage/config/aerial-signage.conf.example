@@ -1,65 +1,59 @@
 # aerial-signage configuration.
 # Copy to /etc/aerial-signage/aerial-signage.conf and edit for your display.
 
-# --- Clock overlay ---
-AERIAL_CLOCK_ENABLED=1
-# Minutes added to real time. Can be negative, e.g. -540.
-AERIAL_CLOCK_OFFSET_MINUTES=0
-# 24h | 12h | custom
-AERIAL_CLOCK_FORMAT=24h
-# 1=show seconds
-AERIAL_CLOCK_SECONDS=0
-# 1=hide AM/PM, only relevant for 12h
-AERIAL_CLOCK_HIDE_AMPM=0
-# strftime format used only when AERIAL_CLOCK_FORMAT=custom
-AERIAL_CLOCK_CUSTOM_FORMAT=%H:%M
+# --- Text overlay (Windows-compatible 4-line model) ---
 # topLeft | topCenter | topRight | bottomLeft | bottomCenter | bottomRight | left | right | screenCenter | random
-AERIAL_CLOCK_CORNER=bottomLeft
-# ASS font size at a 1920x1080 reference resolution
-AERIAL_CLOCK_FONT_SIZE=50
-# Optional font family name. Empty uses mpv default.
-AERIAL_CLOCK_FONT=
-# Pixel margin from screen edges at a 1920x1080 reference resolution
-AERIAL_CLOCK_MARGIN=60
-# RRGGBB text color. Lua converts this to ASS BGR internally.
-AERIAL_CLOCK_COLOR=FFFFFF
+AERIAL_TEXT_POSITION=bottomLeft
+AERIAL_TEXT_FONT="Segoe UI"
+# Windows textSize multiplier. ASS font size = multiplier * 25 at 1920x1080.
+AERIAL_TEXT_SIZE=2
+AERIAL_TEXT_COLOR=FFFFFF
+AERIAL_TEXT_MARGIN=60
+AERIAL_TEXT_MAX_WIDTH=50
+AERIAL_TEXT_RANDOM_INTERVAL=30
+# Minutes added to all Time-Date lines. Can be negative, e.g. -540.
+AERIAL_CLOCK_OFFSET_MINUTES=0
+# none | timedate | information | videoname | message
+AERIAL_LINE1_TYPE=none
+# Moment.js tokens: YYYY YY MMMM MMM MM M DD D dddd ddd dd d Do HH H hh h mm m ss s A a
+AERIAL_LINE1_FORMAT=hh:mm:ss
+AERIAL_LINE1_TEXT=
+AERIAL_LINE1_INFO_MODE=poi
+AERIAL_LINE1_USE_DEFAULT_FONT=1
+AERIAL_LINE1_FONT=
+AERIAL_LINE1_FONT_SIZE=2
+AERIAL_LINE1_COLOR=
+AERIAL_LINE2_TYPE=none
+AERIAL_LINE2_FORMAT=hh:mm:ss
+AERIAL_LINE2_TEXT=
+AERIAL_LINE2_INFO_MODE=poi
+AERIAL_LINE2_USE_DEFAULT_FONT=1
+AERIAL_LINE2_FONT=
+AERIAL_LINE2_FONT_SIZE=2
+AERIAL_LINE2_COLOR=
+AERIAL_LINE3_TYPE=none
+AERIAL_LINE3_FORMAT=hh:mm:ss
+AERIAL_LINE3_TEXT=
+AERIAL_LINE3_INFO_MODE=poi
+AERIAL_LINE3_USE_DEFAULT_FONT=1
+AERIAL_LINE3_FONT=
+AERIAL_LINE3_FONT_SIZE=2
+AERIAL_LINE3_COLOR=
+AERIAL_LINE4_TYPE=none
+AERIAL_LINE4_FORMAT=hh:mm:ss
+AERIAL_LINE4_TEXT=
+AERIAL_LINE4_INFO_MODE=poi
+AERIAL_LINE4_USE_DEFAULT_FONT=1
+AERIAL_LINE4_FONT=
+AERIAL_LINE4_FONT_SIZE=2
+AERIAL_LINE4_COLOR=
+AERIAL_LABELS_FILE=/var/lib/aerial-signage/labels.json
+AERIAL_OSD_BORDER=0
+AERIAL_OSD_SHADOW=1
 
-# --- Date overlay ---
-AERIAL_DATE_ENABLED=0
-AERIAL_DATE_CORNER=bottomLeft
-AERIAL_DATE_FONT_SIZE=25
-AERIAL_DATE_FONT=
-AERIAL_DATE_COLOR=FFFFFF
-AERIAL_DATE_MARGIN=60
-# textual | compact | numeric | custom
-AERIAL_DATE_FORMAT=textual
-# strftime format used only when AERIAL_DATE_FORMAT=custom
-AERIAL_DATE_CUSTOM_FORMAT=%Y-%m-%d
-# 1=include year. Numeric format always includes year.
-AERIAL_DATE_WITH_YEAR=0
-# ja | en
-AERIAL_DATE_LANG=ja
-
-# --- Location overlay ---
-AERIAL_LOC_ENABLED=0
-AERIAL_LOC_CORNER=topRight
-AERIAL_LOC_FONT_SIZE=28
-AERIAL_LOC_FONT=
-AERIAL_LOC_COLOR=FFFFFF
-AERIAL_LOC_MARGIN=60
-# accessibilityLabel | name | poi | filename
-AERIAL_LOC_MODE=accessibilityLabel
-AERIAL_LABELS_FILE=/var/lib/aerial-signage/labels.tsv
-
-# --- Message overlay ---
-AERIAL_MSG_ENABLED=0
-AERIAL_MSG_CORNER=bottomRight
-AERIAL_MSG_FONT_SIZE=24
-AERIAL_MSG_FONT=
-AERIAL_MSG_COLOR=FFFFFF
-AERIAL_MSG_MARGIN=60
-# Use literal \n for line breaks; values containing spaces must be quoted.
-AERIAL_MSG_TEXT="Studio Vibes Wi-Fi\nSSID : fcm-dkym-booth\nPW : dkymfcm117"
+# Legacy keys are still accepted. If no AERIAL_TEXT_/AERIAL_LINE* keys are
+# present, the launcher migrates AERIAL_CLOCK/DATE/LOC/MSG into the line model
+# at runtime for existing devices.
 
 # --- Video source ---
 # 1080-sdr | 1080-hdr | 4k-sdr | 4k-hdr | 1080-h264

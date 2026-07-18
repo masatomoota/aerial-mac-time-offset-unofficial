@@ -45,6 +45,16 @@ if [[ -n "$config_file" && -f "$config_file" ]]; then
   set -u
 fi
 
+new_text_model_set=0
+for key in \
+  AERIAL_TEXT_POSITION AERIAL_TEXT_FONT AERIAL_TEXT_SIZE AERIAL_TEXT_COLOR \
+  AERIAL_LINE1_TYPE AERIAL_LINE2_TYPE AERIAL_LINE3_TYPE AERIAL_LINE4_TYPE; do
+  if [[ -v "$key" ]]; then
+    new_text_model_set=1
+    break
+  fi
+done
+
 : "${AERIAL_CLOCK_ENABLED:=1}"
 : "${AERIAL_CLOCK_OFFSET_MINUTES:=0}"
 : "${AERIAL_CLOCK_FORMAT:=24h}"
@@ -73,7 +83,7 @@ fi
 : "${AERIAL_LOC_COLOR:=FFFFFF}"
 : "${AERIAL_LOC_MARGIN:=60}"
 : "${AERIAL_LOC_MODE:=accessibilityLabel}"
-: "${AERIAL_LABELS_FILE:=/var/lib/aerial-signage/labels.tsv}"
+: "${AERIAL_LABELS_FILE:=/var/lib/aerial-signage/labels.json}"
 : "${AERIAL_MSG_ENABLED:=0}"
 : "${AERIAL_MSG_CORNER:=bottomRight}"
 : "${AERIAL_MSG_FONT_SIZE:=24}"
@@ -97,6 +107,115 @@ fi
 : "${AERIAL_MPV_GPU_CONTEXT:=drm}"
 : "${AERIAL_MPV_HWDEC:=drm-copy}"
 : "${AERIAL_MPV_EXTRA:=}"
+
+moment_from_clock_legacy() {
+  case "${AERIAL_CLOCK_FORMAT:-24h}" in
+    12h)
+      if [[ "${AERIAL_CLOCK_SECONDS:-0}" == "1" ]]; then
+        [[ "${AERIAL_CLOCK_HIDE_AMPM:-0}" == "1" ]] && printf 'h:mm:ss' || printf 'h:mm:ss A'
+      else
+        [[ "${AERIAL_CLOCK_HIDE_AMPM:-0}" == "1" ]] && printf 'h:mm' || printf 'h:mm A'
+      fi
+      ;;
+    custom)
+      printf '%s' "${AERIAL_CLOCK_CUSTOM_FORMAT:-%H:%M}" |
+        sed -e 's/%Y/YYYY/g' -e 's/%y/YY/g' -e 's/%B/MMMM/g' -e 's/%b/MMM/g' \
+          -e 's/%m/MM/g' -e 's/%d/DD/g' -e 's/%A/dddd/g' -e 's/%a/ddd/g' \
+          -e 's/%H/HH/g' -e 's/%I/hh/g' -e 's/%M/mm/g' -e 's/%S/ss/g' -e 's/%p/A/g'
+      ;;
+    *)
+      [[ "${AERIAL_CLOCK_SECONDS:-0}" == "1" ]] && printf 'HH:mm:ss' || printf 'HH:mm'
+      ;;
+  esac
+}
+
+moment_from_date_legacy() {
+  case "${AERIAL_DATE_FORMAT:-textual}" in
+    custom)
+      printf '%s' "${AERIAL_DATE_CUSTOM_FORMAT:-%Y-%m-%d}" |
+        sed -e 's/%Y/YYYY/g' -e 's/%y/YY/g' -e 's/%B/MMMM/g' -e 's/%b/MMM/g' \
+          -e 's/%m/MM/g' -e 's/%d/DD/g' -e 's/%A/dddd/g' -e 's/%a/ddd/g'
+      ;;
+    compact|numeric)
+      [[ "${AERIAL_DATE_WITH_YEAR:-0}" == "1" || "${AERIAL_DATE_FORMAT:-}" == "numeric" ]] && printf 'YYYY/MM/DD' || printf 'MM/DD'
+      ;;
+    *)
+      [[ "${AERIAL_DATE_WITH_YEAR:-0}" == "1" ]] && printf 'YYYY MMMM D dddd' || printf 'MMMM D dddd'
+      ;;
+  esac
+}
+
+legacy_corner_for_text() {
+  if [[ "${AERIAL_CLOCK_ENABLED:-0}" == "1" ]]; then
+    printf '%s' "${AERIAL_CLOCK_CORNER:-bottomLeft}"
+  elif [[ "${AERIAL_DATE_ENABLED:-0}" == "1" ]]; then
+    printf '%s' "${AERIAL_DATE_CORNER:-bottomLeft}"
+  elif [[ "${AERIAL_LOC_ENABLED:-0}" == "1" ]]; then
+    printf '%s' "${AERIAL_LOC_CORNER:-topRight}"
+  elif [[ "${AERIAL_MSG_ENABLED:-0}" == "1" ]]; then
+    printf '%s' "${AERIAL_MSG_CORNER:-bottomRight}"
+  else
+    printf 'bottomLeft'
+  fi
+}
+
+if [[ "$new_text_model_set" == "0" ]]; then
+  AERIAL_TEXT_POSITION="$(legacy_corner_for_text)"
+  AERIAL_TEXT_FONT="${AERIAL_CLOCK_FONT:-Segoe UI}"
+  AERIAL_TEXT_SIZE="2"
+  AERIAL_TEXT_COLOR="${AERIAL_CLOCK_COLOR:-FFFFFF}"
+  AERIAL_TEXT_RANDOM_INTERVAL="30"
+  AERIAL_TEXT_MAX_WIDTH="50"
+  line_index=1
+  if [[ "${AERIAL_CLOCK_ENABLED:-0}" == "1" ]]; then
+    printf -v "AERIAL_LINE${line_index}_TYPE" '%s' "timedate"
+    printf -v "AERIAL_LINE${line_index}_FORMAT" '%s' "$(moment_from_clock_legacy)"
+    ((line_index += 1))
+  fi
+  if [[ "${AERIAL_DATE_ENABLED:-0}" == "1" && "$line_index" -le 4 ]]; then
+    printf -v "AERIAL_LINE${line_index}_TYPE" '%s' "timedate"
+    printf -v "AERIAL_LINE${line_index}_FORMAT" '%s' "$(moment_from_date_legacy)"
+    ((line_index += 1))
+  fi
+  if [[ "${AERIAL_LOC_ENABLED:-0}" == "1" && "$line_index" -le 4 ]]; then
+    loc_type="information"
+    [[ "${AERIAL_LOC_MODE:-accessibilityLabel}" == "videoName" || "${AERIAL_LOC_MODE:-}" == "name" ]] && loc_type="videoname"
+    printf -v "AERIAL_LINE${line_index}_TYPE" '%s' "$loc_type"
+    printf -v "AERIAL_LINE${line_index}_INFO_MODE" '%s' "${AERIAL_LOC_MODE:-poi}"
+    ((line_index += 1))
+  fi
+  if [[ "${AERIAL_MSG_ENABLED:-0}" == "1" && "$line_index" -le 4 ]]; then
+    printf -v "AERIAL_LINE${line_index}_TYPE" '%s' "message"
+    printf -v "AERIAL_LINE${line_index}_TEXT" '%s' "${AERIAL_MSG_TEXT:-}"
+    ((line_index += 1))
+  fi
+fi
+
+: "${AERIAL_TEXT_POSITION:=bottomLeft}"
+: "${AERIAL_TEXT_FONT:=Segoe UI}"
+: "${AERIAL_TEXT_SIZE:=2}"
+: "${AERIAL_TEXT_COLOR:=FFFFFF}"
+: "${AERIAL_TEXT_MARGIN:=60}"
+: "${AERIAL_TEXT_MAX_WIDTH:=50}"
+: "${AERIAL_TEXT_RANDOM_INTERVAL:=30}"
+for line_index in 1 2 3 4; do
+  type_key="AERIAL_LINE${line_index}_TYPE"
+  format_key="AERIAL_LINE${line_index}_FORMAT"
+  text_key="AERIAL_LINE${line_index}_TEXT"
+  info_key="AERIAL_LINE${line_index}_INFO_MODE"
+  default_font_key="AERIAL_LINE${line_index}_USE_DEFAULT_FONT"
+  font_key="AERIAL_LINE${line_index}_FONT"
+  size_key="AERIAL_LINE${line_index}_FONT_SIZE"
+  color_key="AERIAL_LINE${line_index}_COLOR"
+  printf -v "$type_key" '%s' "${!type_key:-none}"
+  printf -v "$format_key" '%s' "${!format_key:-hh:mm:ss}"
+  printf -v "$text_key" '%s' "${!text_key:-}"
+  printf -v "$info_key" '%s' "${!info_key:-poi}"
+  printf -v "$default_font_key" '%s' "${!default_font_key:-1}"
+  printf -v "$font_key" '%s' "${!font_key:-}"
+  printf -v "$size_key" '%s' "${!size_key:-$AERIAL_TEXT_SIZE}"
+  printf -v "$color_key" '%s' "${!color_key:-}"
+done
 
 if [[ ! -s "$AERIAL_PLAYLIST" ]]; then
   printf 'Playlist is missing or empty: %s\n' "$AERIAL_PLAYLIST" >&2
@@ -143,6 +262,23 @@ export AERIAL_MSG_MARGIN
 export AERIAL_MSG_TEXT
 export AERIAL_OSD_BORDER
 export AERIAL_OSD_SHADOW
+export AERIAL_TEXT_POSITION
+export AERIAL_TEXT_FONT
+export AERIAL_TEXT_SIZE
+export AERIAL_TEXT_COLOR
+export AERIAL_TEXT_MARGIN
+export AERIAL_TEXT_MAX_WIDTH
+export AERIAL_TEXT_RANDOM_INTERVAL
+for line_index in 1 2 3 4; do
+  export "AERIAL_LINE${line_index}_TYPE"
+  export "AERIAL_LINE${line_index}_FORMAT"
+  export "AERIAL_LINE${line_index}_TEXT"
+  export "AERIAL_LINE${line_index}_INFO_MODE"
+  export "AERIAL_LINE${line_index}_USE_DEFAULT_FONT"
+  export "AERIAL_LINE${line_index}_FONT"
+  export "AERIAL_LINE${line_index}_FONT_SIZE"
+  export "AERIAL_LINE${line_index}_COLOR"
+done
 
 mpv_args=(
   --fullscreen

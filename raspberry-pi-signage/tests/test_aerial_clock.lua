@@ -53,6 +53,13 @@ assert_equal(clock.alignment_for("right"), 6, "right")
 assert_equal(clock.alignment_for("unknown"), 3, "default alignment")
 assert_equal(clock.rgb_to_ass_bgr("FF0000"), "&H0000FF&", "red bgr")
 
+assert_equal(
+  clock.format_moment(epoch(2026, 7, 18, 15, 4, 5), "YYYY YY MMMM MMM MM M DD D dddd ddd dd d Do HH H hh h mm m ss s A a"),
+  "2026 26 July Jul 07 7 18 18 Saturday Sat Sa 6 18th 15 15 03 3 04 4 05 5 PM pm",
+  "moment token coverage"
+)
+assert_equal(clock.format_moment(epoch(2026, 1, 2, 3, 4, 5), "[Today] HH:mm"), "Today 03:04", "moment literal brackets")
+
 local ass_line = clock.build_layer_ass_line({
   corner = "bottomLeft",
   font_size = 50,
@@ -70,6 +77,19 @@ assert_equal(ass_line:match("\\bord0\\shad1") ~= nil, true, "ass windows border 
 assert_equal(ass_line:match("\\3c&H444444&\\3a&HFF&") ~= nil, true, "ass transparent gray outline")
 assert_equal(ass_line:match("\\4c&H444444&\\4a&H00&") ~= nil, true, "ass gray shadow")
 assert_equal(ass_line:match("\\b0") ~= nil, true, "ass normal font weight")
+
+local multi_line = clock.build_text_ass_line({
+  corner = "bottomLeft",
+  x = 60,
+  y = 1020,
+  lines = {
+    { text = "Line 1", font = "Segoe UI", font_size = 50, color = "FFFFFF" },
+    { text = "Line 2", font = "Arial", font_size = 38, color = "FF0000" },
+  },
+})
+assert_equal(multi_line:match("\\pos%(60,1020%)") ~= nil, true, "shared text position")
+assert_equal(multi_line:match("Line 1\\N") ~= nil, true, "multi line separator")
+assert_equal(multi_line:match("\\fnArial") ~= nil, true, "per-line font override")
 
 assert_equal(clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "textual", lang = "ja" }), "7月18日（土）", "ja textual date")
 assert_equal(
@@ -94,5 +114,26 @@ assert_equal(
   "custom date"
 )
 assert_equal(clock.unescape("a\\nb\\\\c"), "a\nb\\c", "unescape newline and backslash")
+
+local poi_row = {
+  accessibilityLabel = "Short Label",
+  name = "Video Name",
+  pointsOfInterest = {
+    { t = 0, key = "K0", text_ja = "日本語0", text_en = "English 0" },
+    { t = 20, key = "K20", text_ja = "", text_en = "English 20" },
+    { t = 50, key = "K50", text_ja = "日本語50", text_en = "English 50" },
+  },
+}
+assert_equal(clock.location_text(poi_row, "accessibilityLabel", 25, "ja", "file"), "Short Label", "location label")
+assert_equal(clock.location_text(poi_row, "videoName", 25, "ja", "file"), "Video Name", "location videoName")
+assert_equal(clock.location_text(poi_row, "name", 25, "ja", "file"), "Video Name", "location legacy name")
+assert_equal(clock.location_text(poi_row, "poi", 0, "ja", "file"), "日本語0", "poi first threshold")
+assert_equal(clock.location_text(poi_row, "poi", 25, "ja", "file"), "English 20", "poi ja falls back en")
+assert_equal(clock.location_text(poi_row, "information", 55, "en", "file"), "English 50", "information alias")
+assert_equal(clock.location_text({ accessibilityLabel = "Only Label", pointsOfInterest = {} }, "poi", 25, "ja", "file"), "Only Label", "poi fallback label")
+
+local legacy_points = clock.legacy_poi_points('{"30":"Thirty","0":"Zero"}')
+assert_equal(#legacy_points, 2, "legacy poi count")
+assert_equal(clock.location_text({ accessibilityLabel = "Label", pointsOfInterest = legacy_points }, "poi", 10, "en", "file"), "Zero", "legacy poi threshold")
 
 print("OK")

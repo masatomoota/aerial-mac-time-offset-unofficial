@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import importlib.machinery
 import importlib.util
+import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -79,11 +81,110 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["config"]["AERIAL_SOURCE"], "classic63")
         self.assertTrue(payload["status"]["service_active"])
 
+    def test_api_state_merges_launcher_defaults_and_ignores_empty_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "aerial.conf"
+            path.write_text('AERIAL_MSG_CORNER=""\nAERIAL_DATE_COLOR=""\n', encoding="utf-8")
+            with mock.patch.object(web, "config_path", return_value=path), mock.patch.object(
+                web, "system_status", return_value={"service_active": True}
+            ):
+                payload = web.api_state()
+
+        cfg = payload["config"]
+        self.assertEqual(cfg["AERIAL_MSG_CORNER"], "bottomRight")
+        self.assertEqual(cfg["AERIAL_MSG_COLOR"], "FFFFFF")
+        self.assertEqual(cfg["AERIAL_DATE_COLOR"], "FFFFFF")
+        self.assertEqual(cfg["AERIAL_CLOCK_FONT"], "Noto Sans CJK JP")
+        self.assertEqual(cfg["AERIAL_QUALITY"], "1080-sdr")
+        self.assertEqual(cfg["AERIAL_SOURCE"], "classic63")
+        self.assertEqual(cfg["AERIAL_LABELS_FILE"], "/var/lib/aerial-signage/labels.json")
+
+    def test_text_ui_uses_new_four_line_model(self):
+        html = web.html_page()
+        self.assertEqual(html.count('data-key="AERIAL_TEXT_POSITION"'), 1)
+        self.assertIn('["timedate","Time-Date"]', html)
+        self.assertIn('["videoname","Video Name"]', html)
+        self.assertIn('AERIAL_LINE${i}_TYPE', html)
+        self.assertNotIn('data-key="AERIAL_LOC_MODE"', html)
+
+    def test_save_config_drops_empty_values_and_undisplayed_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = pathlib.Path(tmp) / "aerial.conf"
+            playlist = pathlib.Path(tmp) / "playlist.txt"
+            config.write_text(
+                "\n".join(
+                    [
+                        "AERIAL_PLAYLIST=" + str(playlist),
+                        "AERIAL_MSG_CORNER=topLeft",
+                        "AERIAL_MSG_FONT=Custom Font",
+                        "AERIAL_MPV_EXTRA=--keep-me",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_run_cmd(args, timeout=15):
+                if "aerial-fetch" in str(args[1]):
+                    playlist.write_text("one.mp4\n", encoding="utf-8")
+                return {"ok": True, "returncode": 0, "stdout": "", "stderr": ""}
+
+            with mock.patch.object(web, "config_path", return_value=config), mock.patch.object(web, "run_cmd", side_effect=fake_run_cmd):
+                payload = web.save_config_and_restart(
+                    {
+                        "AERIAL_MSG_CORNER": "",
+                        "AERIAL_MSG_FONT": "",
+                        "AERIAL_MSG_COLOR": "ffffff",
+                        "AERIAL_MPV_EXTRA": "--not-displayed",
+                    }
+                )
+
+            text = config.read_text(encoding="utf-8")
+
+        self.assertTrue(payload["ok"])
+        self.assertNotIn("AERIAL_MSG_CORNER=", text)
+        self.assertNotIn("AERIAL_MSG_FONT=", text)
+        self.assertIn("AERIAL_MSG_COLOR=FFFFFF", text)
+        self.assertIn("AERIAL_MPV_EXTRA=--keep-me", text)
+        self.assertNotIn("--not-displayed", text)
+
+    def test_save_config_rejects_bad_color(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = pathlib.Path(tmp) / "aerial.conf"
+            config.write_text("AERIAL_MSG_COLOR=FFFFFF\n", encoding="utf-8")
+            with mock.patch.object(web, "config_path", return_value=config):
+                with self.assertRaisesRegex(ValueError, "AERIAL_MSG_COLOR"):
+                    web.save_config_and_restart({"AERIAL_MSG_COLOR": "00000G"})
+            self.assertEqual(config.read_text(encoding="utf-8"), "AERIAL_MSG_COLOR=FFFFFF\n")
+
+    def test_effective_config_migrates_legacy_layers_to_lines_when_new_keys_absent(self):
+        cfg = web.effective_config(
+            {
+                "AERIAL_CLOCK_ENABLED": "1",
+                "AERIAL_CLOCK_FORMAT": "12h",
+                "AERIAL_CLOCK_SECONDS": "1",
+                "AERIAL_CLOCK_HIDE_AMPM": "0",
+                "AERIAL_CLOCK_CORNER": "topRight",
+                "AERIAL_LOC_ENABLED": "1",
+                "AERIAL_LOC_MODE": "videoName",
+            }
+        )
+        self.assertEqual(cfg["AERIAL_TEXT_POSITION"], "topRight")
+        self.assertEqual(cfg["AERIAL_LINE1_TYPE"], "timedate")
+        self.assertEqual(cfg["AERIAL_LINE1_FORMAT"], "h:mm:ss A")
+        self.assertEqual(cfg["AERIAL_LINE2_TYPE"], "videoname")
+
+    def test_effective_config_keeps_new_line_model_when_present(self):
+        cfg = web.effective_config({"AERIAL_LINE1_TYPE": "message", "AERIAL_LINE1_TEXT": "Hello"})
+        self.assertEqual(cfg["AERIAL_LINE1_TYPE"], "message")
+        self.assertEqual(cfg["AERIAL_LINE1_TEXT"], "Hello")
+        self.assertEqual(cfg["AERIAL_TEXT_POSITION"], "bottomLeft")
+
     def test_save_config_fetches_playlist_before_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = pathlib.Path(tmp) / "aerial.conf"
             playlist = pathlib.Path(tmp) / "playlist.txt"
-            config.write_text("AERIAL_SOURCE=classic63\n", encoding="utf-8")
+            config.write_text(f"AERIAL_SOURCE=classic63\nAERIAL_PLAYLIST={playlist}\n", encoding="utf-8")
             calls = []
 
             def fake_run_cmd(args, timeout=15):
@@ -144,6 +245,51 @@ class WebTests(unittest.TestCase):
     def test_datetime_format_translation_preserves_strftime(self):
         self.assertEqual(web.translate_datetime_format("HH:mm:ss"), "%H:%M:%S")
         self.assertEqual(web.translate_datetime_format("%Y-%m-%d"), "%Y-%m-%d")
+
+    def test_windows_config_import_export_maps_text_schema_and_passthrough(self):
+        payload = {
+            "textFont": "Segoe UI",
+            "textSize": "2",
+            "textColor": "#FFFFFF",
+            "randomSpeed": 45,
+            "unknownThing": {"keep": True},
+            "displayText": {
+                "positionList": ["topleft", "bottomleft", "random"],
+                "bottomleft": [
+                    {"type": "time", "timeString": "YYYY-MM-DD HH:mm", "defaultFont": True, "maxWidth": "66%"},
+                    {"type": "information", "infoType": "name", "defaultFont": False, "font": "Arial", "fontSize": "1.5", "fontColor": "#00FF00"},
+                    {"type": "text", "text": "Hello", "defaultFont": True},
+                    {"type": "none", "defaultFont": True},
+                ],
+            },
+        }
+        imported = web.import_windows_config_json(json.dumps(payload))
+        cfg = imported["config"]
+        self.assertEqual(cfg["AERIAL_TEXT_POSITION"], "bottomLeft")
+        self.assertEqual(cfg["AERIAL_TEXT_RANDOM_INTERVAL"], "45")
+        self.assertEqual(cfg["AERIAL_TEXT_MAX_WIDTH"], "66")
+        self.assertEqual(cfg["AERIAL_LINE1_TYPE"], "timedate")
+        self.assertEqual(cfg["AERIAL_LINE1_FORMAT"], "YYYY-MM-DD HH:mm")
+        self.assertEqual(cfg["AERIAL_LINE2_TYPE"], "videoname")
+        self.assertEqual(cfg["AERIAL_LINE2_USE_DEFAULT_FONT"], "0")
+        self.assertEqual(cfg["AERIAL_LINE2_COLOR"], "00FF00")
+        self.assertIn("unknownThing", imported["passthrough_keys"])
+
+        exported = web.export_windows_config_json(cfg)
+        self.assertEqual(exported["unknownThing"], {"keep": True})
+        self.assertEqual(exported["displayText"]["bottomleft"][0]["timeString"], "YYYY-MM-DD HH:mm")
+        self.assertEqual(exported["displayText"]["bottomleft"][1]["infoType"], "name")
+
+    def test_profiles_crud_uses_sanitized_json_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"AERIAL_PROFILES_DIR": tmp}):
+                saved = web.save_profile("City/Night", {"AERIAL_SCENES": "city", "AERIAL_HIDDEN_VIDEOS": "x", "AERIAL_MPV_EXTRA": "ignored"})
+                self.assertEqual(saved["name"], "City-Night")
+                self.assertIn("City-Night", web.list_profiles()["profiles"])
+                loaded = web.load_profile("City-Night")
+                self.assertEqual(loaded["config"], {"AERIAL_SCENES": "city", "AERIAL_HIDDEN_VIDEOS": "x"})
+                web.delete_profile("City-Night")
+                self.assertEqual(web.list_profiles()["profiles"], [])
 
 
 if __name__ == "__main__":

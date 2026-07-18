@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import re
 import sys
 import time
@@ -62,6 +63,10 @@ def sources_path() -> Path:
 
 def scene_map_path() -> Path:
     return script_root() / "manifest" / "scene_map.json"
+
+
+def poi_strings_path() -> Path:
+    return script_root() / "manifest" / "poi-strings.json"
 
 
 CONFIG_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -174,6 +179,117 @@ def load_json_file(path: Path, default: Any) -> Any:
         return default
 
 
+def _decode_strings_text(raw: bytes) -> str:
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    sample = raw[:200]
+    if sample[1::2].count(0) > max(2, len(sample) // 8):
+        return raw.decode("utf-16-le")
+    if sample[0::2].count(0) > max(2, len(sample) // 8):
+        return raw.decode("utf-16-be")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("utf-16")
+
+
+def _skip_strings_ws(text: str, index: int) -> int:
+    while index < len(text):
+        if text[index].isspace() or text[index] == "\ufeff":
+            index += 1
+            continue
+        if text.startswith("//", index):
+            end = text.find("\n", index + 2)
+            index = len(text) if end == -1 else end + 1
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            index = len(text) if end == -1 else end + 2
+            continue
+        break
+    return index
+
+
+def _parse_strings_quoted(text: str, index: int) -> Tuple[str, int]:
+    if index >= len(text) or text[index] != '"':
+        raise ValueError("expected quoted string")
+    index += 1
+    out: List[str] = []
+    while index < len(text):
+        ch = text[index]
+        if ch == '"':
+            return "".join(out), index + 1
+        if ch != "\\":
+            out.append(ch)
+            index += 1
+            continue
+        index += 1
+        if index >= len(text):
+            raise ValueError("unterminated escape")
+        esc = text[index]
+        simple = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\"}
+        if esc in simple:
+            out.append(simple[esc])
+            index += 1
+        elif esc in {"U", "u"} and index + 4 < len(text):
+            digits = text[index + 1 : index + 5]
+            if not re.match(r"^[0-9A-Fa-f]{4}$", digits):
+                raise ValueError("invalid unicode escape")
+            out.append(chr(int(digits, 16)))
+            index += 5
+        else:
+            out.append(esc)
+            index += 1
+    raise ValueError("unterminated quoted string")
+
+
+def parse_apple_strings_bytes(raw: bytes) -> Dict[str, str]:
+    """Parse Apple .strings data using only stdlib paths.
+
+    tvOS bundles may ship as binary plists; source fixtures and older bundles
+    may use the classic quoted `key = value;` text format in UTF-8 or UTF-16.
+    """
+    if raw.startswith(b"bplist00"):
+        payload = plistlib.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("binary strings plist root must be a dictionary")
+        return {str(key): str(value) for key, value in payload.items()}
+
+    text = _decode_strings_text(raw)
+    index = 0
+    parsed: Dict[str, str] = {}
+    while True:
+        index = _skip_strings_ws(text, index)
+        if index >= len(text):
+            return parsed
+        key, index = _parse_strings_quoted(text, index)
+        index = _skip_strings_ws(text, index)
+        if index >= len(text) or text[index] != "=":
+            raise ValueError("expected = after key")
+        index = _skip_strings_ws(text, index + 1)
+        value, index = _parse_strings_quoted(text, index)
+        index = _skip_strings_ws(text, index)
+        if index >= len(text) or text[index] != ";":
+            raise ValueError("expected ; after value")
+        parsed[key] = value
+        index += 1
+
+
+def parse_apple_strings_file(path: Path) -> Dict[str, str]:
+    return parse_apple_strings_bytes(path.read_bytes())
+
+
+def load_poi_strings(path: Optional[Path] = None) -> Dict[str, Dict[str, str]]:
+    data = load_json_file(path or poi_strings_path(), {})
+    if not isinstance(data, dict):
+        return {}
+    locales: Dict[str, Dict[str, str]] = {}
+    for locale, values in data.items():
+        if isinstance(locale, str) and isinstance(values, dict):
+            locales[locale] = {str(key): str(value) for key, value in values.items() if isinstance(value, str)}
+    return locales
+
+
 def load_sources(path: Optional[Path] = None) -> List[Dict[str, Any]]:
     data = load_json_file(path or sources_path(), {"sources": []})
     if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
@@ -261,6 +377,32 @@ def entry_poi_json(entry: Dict[str, Any]) -> str:
         clean = {str(key): str(value) for key, value in raw.items() if str(value)}
         return json.dumps(clean, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return ""
+
+
+def _looks_like_localization_key(value: str) -> bool:
+    return bool(re.match(r"^[A-Za-z0-9_]+$", value))
+
+
+def entry_poi_rows(entry: Dict[str, Any], poi_strings: Dict[str, Dict[str, str]]) -> List[Dict[str, Any]]:
+    raw = entry.get("pointsOfInterest")
+    if not isinstance(raw, dict):
+        return []
+    rows: List[Dict[str, Any]] = []
+    for seconds, key in raw.items():
+        try:
+            numeric_seconds = int(float(str(seconds)))
+        except (TypeError, ValueError):
+            continue
+        raw_key = str(key)
+        if not raw_key:
+            continue
+        text_ja = poi_strings.get("ja", {}).get(raw_key, "")
+        text_en = poi_strings.get("en", {}).get(raw_key, "")
+        if not text_ja and not text_en and not _looks_like_localization_key(raw_key):
+            text_en = raw_key
+        rows.append({"t": numeric_seconds, "key": raw_key, "text_ja": text_ja, "text_en": text_en})
+    rows.sort(key=lambda row: row["t"])
+    return rows
 
 
 def resolve_scene(entry: Dict[str, Any], scene_map: Dict[str, str]) -> str:
@@ -475,6 +617,17 @@ def write_labels(rows: Iterable[Tuple[str, ...]], labels_file: Path) -> None:
     fsync_directory(labels_file.parent)
 
 
+def write_labels_json(rows: Iterable[Dict[str, Any]], labels_file: Path) -> None:
+    labels_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"videos": list(rows)}
+    tmp_path = labels_file.with_suffix(labels_file.suffix + ".part")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    with tmp_path.open("rb") as handle:
+        os.fsync(handle.fileno())
+    tmp_path.replace(labels_file)
+    fsync_directory(labels_file.parent)
+
+
 def list_video_rows(
     entries: Iterable[Dict[str, Any]], quality: str, strict: bool, cache_dir: Path, scene_map: Dict[str, str]
 ) -> List[Tuple[str, str, str, str, str]]:
@@ -573,23 +726,40 @@ def main(argv: Optional[List[str]] = None) -> int:
     cache_dir = Path(cfg["AERIAL_CACHE_DIR"])
     playlist = Path(cfg["AERIAL_PLAYLIST"])
     cache_dir.mkdir(parents=True, exist_ok=True)
+    poi_strings = load_poi_strings()
 
     available: List[Path] = []
     label_rows: List[Tuple[str, str, str, str, str, str]] = []
+    label_json_rows: List[Dict[str, Any]] = []
     for index, (entry, url) in enumerate(selected_entries, 1):
         log(f"[{index}/{len(urls)}] {url}")
         path = download_one(url, cache_dir)
         if path is not None and path.exists() and path.stat().st_size > 0:
+            label = entry_label(entry)
+            asset_id = entry_id(entry)
+            scene = resolve_scene(entry, scene_map)
+            name = entry_name(entry)
             available.append(path)
             label_rows.append(
                 (
                     path.name,
-                    entry_label(entry),
-                    entry_id(entry),
-                    resolve_scene(entry, scene_map),
-                    entry_name(entry),
+                    label,
+                    asset_id,
+                    scene,
+                    name,
                     entry_poi_json(entry),
                 )
+            )
+            label_json_rows.append(
+                {
+                    "file": path.name,
+                    "label": label,
+                    "accessibilityLabel": label,
+                    "id": asset_id,
+                    "scene": scene,
+                    "name": name,
+                    "pointsOfInterest": entry_poi_rows(entry, poi_strings),
+                }
             )
 
     if not available:
@@ -598,6 +768,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     write_playlist(available, playlist)
     write_labels(label_rows, playlist.parent / "labels.tsv")
+    write_labels_json(label_json_rows, playlist.parent / "labels.json")
     log(f"wrote playlist {playlist} with {len(available)} videos")
     return 0
 

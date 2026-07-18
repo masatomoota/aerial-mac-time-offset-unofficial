@@ -70,6 +70,47 @@ source picker, quality/strict/shuffle/limit, 4 overlay panels, status (mpv IPC s
 Fetch/Restart/Reboot. Config writes validated against launcher grammar. APIs: /api/state,
 /api/videos, /api/save, /api/fetch, /api/player/restart, /api/reboot.
 
+## Session 6: Windows-parity Text Phase 2 on Raspberry Pi signage
+
+Role/persona for continuation: act as a senior maintainer preserving Windows behavior exactly where feasible while keeping the Pi implementation shell-safe and device-continuity-safe. Tone should be direct, implementation-first, and evidence-driven.
+
+Agreed context:
+- The user explicitly requested **edit in place, NO git** for this phase. Do not commit or run sync flows for this task.
+- Reference behavior is Windows `displayText`: 4 lines, each with Type, shared Position grid including Random, global `textFont/textSize/textColor`, per-line `defaultFont/font/fontSize/fontColor`, `randomSpeed`, `maxWidth`, and Moment.js `timeString`.
+- The Pi fixed `AERIAL_CLOCK/DATE/LOC/MSG` model was allowed to break, but existing device continuity was required.
+
+Implemented contract:
+- Primary runtime schema is now `AERIAL_TEXT_*` + `AERIAL_LINE{1..4}_*`.
+- `AERIAL_CLOCK_OFFSET_MINUTES` remains the only offset and applies to every `timedate` line.
+- `lua/aerial_clock.lua` implements Moment tokens: `YYYY YY MMMM MMM MM M DD D dddd ddd dd d Do HH H hh h mm m ss s A a`, plus bracket literals.
+- `lua/clock-overlay.lua` renders all active lines into one shared-position ASS overlay; `random` repositions all lines every `AERIAL_TEXT_RANDOM_INTERVAL` seconds.
+- If no new text/line key exists, `bin/aerial-signage` and `/api/state` migrate legacy clock/date/location/message effective values into the new line model. If any new key exists, new keys win.
+- `/api/state` still returns launcher-effective config and `/api/save` still drops empty displayed values and validates 6-hex colors.
+- Web UI Text section is now Position + Text Options with 4 line controls and live Moment preview.
+- Videos tab has Profiles stored as named JSON under `/etc/aerial-signage/profiles/`.
+- Advanced has Windows-compatible `config.json` export/import. Unknown Windows keys are preserved in `AERIAL_WINDOWS_CONFIG_PASSTHROUGH_B64` so export can round-trip unmapped fields. Existing macOS plist import remains.
+
+Files touched in Session 6:
+- `raspberry-pi-signage/lua/aerial_clock.lua`
+- `raspberry-pi-signage/lua/clock-overlay.lua`
+- `raspberry-pi-signage/bin/aerial-signage`
+- `raspberry-pi-signage/bin/aerial-web`
+- `raspberry-pi-signage/config/aerial-signage.conf.example`
+- `raspberry-pi-signage/tests/test_aerial_clock.lua`
+- `raspberry-pi-signage/tests/test_web.py`
+- `raspberry-pi-signage/README.md`
+- `raspberry-pi-signage/README.ja.md`
+- `raspberry-pi-signage/docs/display-settings-mapping.md`
+- `raspberry-pi-signage/tasks/todo.md`
+- `raspberry-pi-signage/tasks/orchestration/interfaces.md`
+- `raspberry-pi-signage/tasks/orchestration/decisions.md`
+- `raspberry-pi-signage/tasks/orchestration/threads/windows-parity-text-phase2.md`
+
+Validation status:
+- Final exact self-check passed: `cd raspberry-pi-signage && python3 -m py_compile bin/aerial-fetch bin/aerial-web && python3 tests/test_fetch.py && python3 tests/test_web.py && luac -p lua/*.lua && lua tests/test_aerial_clock.lua && bash -n bin/aerial-signage && shellcheck bin/aerial-signage`.
+- Additional local checks passed: temporary `aerial-web` server returned `/api/state` with effective config, and extracted embedded JS passed `node --check`.
+- Rendered browser interaction could not run in this environment: Browser runtime reported no browser available, and the local Node environment did not have Playwright installed.
+
 **tvOS 16 catalog:** sources.json id=tvos16 → verified raw mirror (gist theothernt, byte-identical
 to Apple resources-16.tar). Bundled fallback manifest/entries-tvos16.json. scene_map.json maps
 Apple category UUIDs→scenes (Underwater→sea 21, Landscapes→nature 41, Cities→city 30, Space 22;
