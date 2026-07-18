@@ -69,6 +69,12 @@ By default `aerial-fetch` downloads the real Apple Aerial set (63 videos, stream
 `sylvan.apple.com`) via a community-maintained manifest mirror. A snapshot of that manifest is
 bundled under `manifest/entries.json` and used automatically if the mirror is unreachable.
 
+**Apple Root CA (Linux):** `sylvan.apple.com` is signed by Apple's *private* root CA, which ships on
+macOS/iOS/tvOS but is absent from Linux trust stores — so downloads otherwise fail with
+`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`. `install.sh` installs that root
+automatically (fetched from Apple over a public-CA-verified connection and pinned by SHA-256); pass
+`--no-apple-ca` to skip it. If you use the community manifest instead, the CA is not needed.
+
 If Apple ever changes those URLs, switch `AERIAL_MANIFEST_URL` to the GitHub-hosted community set
 (fewer videos, but very stable):
 

@@ -75,8 +75,15 @@ container `.mov`, served from `https://sylvan.apple.com/...`.
 
 ## What still needs real Pi hardware to validate
 
+**Update:** items 1 and the Apple-CA issue were resolved on a real Pi 4 (Debian 13 Trixie, mpv
+0.40) — HEVC hardware decode via `--hwdec=drm-copy` is confirmed engaging the rpivid decoder, and
+`install.sh` now installs Apple's private root CA (required for `sylvan.apple.com` on Linux). See
+`tasks/handoff.md` → "Session 3: Live deploy" for the full device report. The remaining items still
+need a display attached.
+
 These are inherently hardware-specific and could NOT be tested on macOS:
 1. HEVC **hardware** decode via `--hwdec=drm-copy` on Pi 4 / Pi 5 (dropped-frame / thermal behavior).
+   → **Confirmed on Pi 4 / Trixie / mpv 0.40** (`Using hardware decoding (drm-copy)`, `/dev/video19`).
 2. **DRM/KMS on tty1** ownership from the systemd unit — `aerial-signage.service` now ships the
    standard kiosk pattern (`Conflicts=getty@tty1.service`, `After=getty@tty1.service`,
    `TTYReset/TTYVHangup/TTYVTDisallocate=yes`), but the boot-time handoff still needs confirming

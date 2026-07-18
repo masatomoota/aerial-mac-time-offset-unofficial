@@ -3,6 +3,56 @@
 > **Update (2026-07-18, second session):** After the initial release, a Pi 3 compatibility mode and
 > a full multi-agent bug review + fixes were added. See "Session 2: Pi 3 support & bug review"
 > below. The original handoff follows it and remains accurate except where noted.
+>
+> **Update (2026-07-18, third session):** First real-hardware deployment to a Pi 4. See
+> "Session 3: Live deploy" immediately below — it includes the one thing that only surfaced on real
+> hardware (the Apple Root CA trust issue) and the exact device state.
+
+## Session 3: Live deploy to a real Pi 4 (dkym-booth-aerial)
+
+Target device (destined for a 代官山/Daikanyama booth):
+- Raspberry Pi 4 Model B, 8 GB RAM, 116 GB SD (plenty free).
+- **Raspberry Pi OS = Debian 13 "Trixie"**, 64-bit, **Lite** (console/`multi-user.target`), mpv
+  **0.40.0**, python 3.13, systemd, passwordless sudo. Reached over wired SSH at `172.16.30.70`
+  (mDNS `dkym-booth-aerial.local`), user `masatomo`, key auth. Wi-Fi (`dkym` SSID) preconfigured for
+  the booth; deployed over wired at home.
+
+What was validated ON HARDWARE (works):
+- `install.sh` on Trixie: installs mpv, lays out /opt (root-owned), /etc, /var/lib, renders both
+  units with `User=masatomo`, enables services, boot-to-console via raspi-config.
+- **HEVC hardware decode confirmed**: `mpv --hwdec=drm-copy` → `Using hardware decoding (drm-copy)`,
+  driving the rpivid stateless decoder (`/dev/video19`, `Hwaccel V4L2 HEVC stateless`). Our default
+  `AERIAL_MPV_HWDEC=drm-copy` is correct on Trixie/mpv 0.40. (`v4l2m2m-copy` does NOT work for HEVC —
+  it's the H.264 path; leave HEVC on `drm-copy`.)
+- Clock overlay runs under mpv 0.40 (`create_osd_overlay` OK) and shows correct time.
+- python fetcher tests pass under python 3.13.
+- Config set: **`AERIAL_CLOCK_OFFSET_MINUTES=0`** (booth shows real time — the user's choice), 24h,
+  bottomRight.
+- Full 63-video Apple set fetched to `/var/lib/aerial-signage/videos` so the booth plays
+  **fully offline** (no network needed at the venue; Wi-Fi only for the optional weekly refresh).
+
+**THE hardware-only gotcha — Apple Root CA (now fixed in code):**
+`sylvan.apple.com` is signed by Apple's *private* root CA (chain: leaf ← Apple Server Authentication
+CA ← **Apple Root CA**). That root ships on Apple OSes but is NOT in the Debian/Linux trust store, so
+`aerial-fetch` initially failed every download with `CERTIFICATE_VERIFY_FAILED: unable to get local
+issuer certificate` (curl failed too — not our bug). Fix (committed): `install.sh` now installs the
+Apple Root CA — downloaded from `https://www.apple.com/appleca/AppleIncRootCertificate.cer` over a
+public-CA-verified connection and pinned to SHA-256
+`B0B1730ECBC7FF4505142C49F1295E6EDA6BCAED7E2C68C5BE91B5A11001F024` — into
+`/usr/local/share/ca-certificates/` + `update-ca-certificates`. `--no-apple-ca` skips it; the
+community manifest avoids the need entirely. (On the live Pi this was applied manually first, then
+baked into install.sh, so a fresh install now handles it automatically.)
+
+Still NOT done (needs the physical display, which was disconnected during setup):
+- On-screen output was never seen — HDMI was unplugged (setup done headless over SSH). The kiosk
+  service is **enabled but intentionally not started** (starting it with no connected display would
+  fail-loop on DRM). It will start at boot.
+- **Operational note for the booth:** connect the HDMI display BEFORE powering on (Pi DRM/KMS wants
+  the output present at boot; console hotplug is unreliable). Then `aerial-signage.service`
+  auto-starts on tty1. To preview at home, attach a monitor and `sudo systemctl start
+  aerial-signage.service` (or reboot).
+- install.sh's boot behaviour uses `raspi-config nonint do_boot_behaviour B2` (console autologin) —
+  confirm the getty@tty1 → aerial-signage handoff on a real boot with a display.
 
 ## Session 2: Pi 3 support & bug review
 

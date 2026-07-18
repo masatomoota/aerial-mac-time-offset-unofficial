@@ -69,6 +69,12 @@ AERIAL_MPV_HWDEC=v4l2m2m-copy
 コミュニティ管理のマニフェストミラー経由で取得します。そのマニフェストのスナップショットを
 `manifest/entries.json` に同梱しており、ミラーに到達できない場合は自動的にこれを使います。
 
+**Apple Root CA（Linux 必須）:** `sylvan.apple.com` は Apple の*プライベート*ルート CA で署名されて
+います。macOS/iOS/tvOS には最初から入っていますが Linux の信頼ストアには無いため、そのままでは
+`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate` で全ダウンロードが失敗します。
+`install.sh` はこのルートを自動導入します（Apple から公的CA検証済みの接続で取得し、SHA-256 で照合）。
+`--no-apple-ca` で無効化できます。コミュニティ版マニフェストを使う場合はこの CA は不要です。
+
 Apple が URL を変更した場合は、`AERIAL_MANIFEST_URL` を GitHub ホストのコミュニティ版
 （本数は少ないが非常に安定）へ切り替えてください。
 
