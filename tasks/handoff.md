@@ -1,5 +1,45 @@
 # Handoff — Raspberry Pi Aerial Digital Signage
 
+## Session 4 (2026-07-18 PM): playback fix, Web UI, tvOS16/Sea catalog — CURRENT STATE
+
+**Playback saga (Pi 4 + 4K TV, Trixie, mpv 0.40) — root causes found by measurement:**
+1st symptom 3fps+haze: drm-copy CPU-copies tiled 10-bit HEVC → switched to zero-copy. 2nd: vo=gpu
+renderer caps ~15-22fps presents (est-display-fps proved it). 3rd: gpu-next renders SAND 10-bit as
+solid purple. 4th: even H.264 dropped frames — **real culprit: mpv default shaders too heavy for
+V3D; `--profile=fast` lifts present rate to 55-60fps**. Final known-good config (0 drops, in README
+"Performance tuning"): `1080-h264 + strict + vo=gpu-next + hwdec=no + --drm-mode=1920x1080
+--video-sync=display-resample --profile=fast` (hwdec=v4l2m2m-copy also OK, slightly more jitter;
+swdec ≈1.2 cores CPU). User confirmed motion improved; final visual sign-off of smoothness+haze
+still pending on-site. If haze persists: A/B `--video-output-levels` and TV "HDMI black level".
+
+**Web UI (`bin/aerial-web`, port 8080, systemd aerial-web.service, runs as root, optional
+AERIAL_WEB_TOKEN):** Mac-app-equivalent SPA (dark theme) — scenes/videos with hide toggles,
+source picker, quality/strict/shuffle/limit, 4 overlay panels, status (mpv IPC stats), Save&Apply/
+Fetch/Restart/Reboot. Config writes validated against launcher grammar. APIs: /api/state,
+/api/videos, /api/save, /api/fetch, /api/player/restart, /api/reboot.
+
+**tvOS 16 catalog:** sources.json id=tvos16 → verified raw mirror (gist theothernt, byte-identical
+to Apple resources-16.tar). Bundled fallback manifest/entries-tvos16.json. scene_map.json maps
+Apple category UUIDs→scenes (Underwater→sea 21, Landscapes→nature 41, Cities→city 30, Space 22;
+all 114 entries have LIVE url-1080-H264 — verified individually). aerial-fetch: AERIAL_SOURCE/
+AERIAL_SCENES/AERIAL_HIDDEN_VIDEOS, labels.tsv sidecar, --list-videos.
+
+**Multi-overlay lua:** message/clock/date/location layers, per-corner stacking; defaults = user's
+macOS screenshots (clock bottomLeft 50 24h; date bottomLeft 25 ja textual; location topRight 28,
+label from labels.tsv per video; message bottomRight 24 = booth Wi-Fi text "Studio Vibes Wi-Fi /
+SSID : fcm-dkym-booth / PW : dkymfcm117").
+
+**Device (dkym-booth-aerial, 172.16.30.70, Pi 4 8GB, Trixie):** deployed via rsync + install.sh;
+aerial-web active (HTTP 200, APIs verified: 114 videos, correct scene counts); device conf:
+source=tvos16, scenes=nature,city,sea (92 videos), quality=1080-h264 strict, clock offset 0,
+clock bottomLeft 50. tvOS16 H.264 fetch (~29GB) was RUNNING in background at session end —
+after it finishes: `sudo systemctl restart aerial-signage.service` to pick up the new playlist
++ labels, then verify overlays on the display. Old classic63 cache files (HEVC+H264, ~25GB)
+remain in /var/lib/aerial-signage/videos and can be pruned if disk is needed.
+
+**Repo state:** all of the above committed & pushed (master = feature/raspberry-pi-signage).
+Older session notes follow below.
+
 > **Update (2026-07-18, second session):** After the initial release, a Pi 3 compatibility mode and
 > a full multi-agent bug review + fixes were added. See "Session 2: Pi 3 support & bug review"
 > below. The original handoff follows it and remains accurate except where noted.
