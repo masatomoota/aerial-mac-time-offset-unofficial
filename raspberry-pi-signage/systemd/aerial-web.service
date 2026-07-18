@@ -1,0 +1,13 @@
+[Unit]
+Description=Aerial Signage Web UI
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/aerial-signage/bin/aerial-web
+Environment=AERIAL_CONFIG=/etc/aerial-signage/aerial-signage.conf
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -26,11 +26,13 @@ fi
 if command -v systemctl >/dev/null 2>&1; then
   systemctl disable --now aerial-signage.service >/dev/null 2>&1 || true
   systemctl disable --now aerial-fetch.timer >/dev/null 2>&1 || true
+  systemctl disable --now aerial-web.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/aerial-signage.service
   rm -f /etc/systemd/system/aerial-fetch.service
   rm -f /etc/systemd/system/aerial-fetch.timer
+  rm -f /etc/systemd/system/aerial-web.service
   systemctl daemon-reload
-  systemctl reset-failed aerial-signage.service aerial-fetch.service aerial-fetch.timer >/dev/null 2>&1 || true
+  systemctl reset-failed aerial-signage.service aerial-fetch.service aerial-fetch.timer aerial-web.service >/dev/null 2>&1 || true
 fi
 
 rm -rf /opt/aerial-signage

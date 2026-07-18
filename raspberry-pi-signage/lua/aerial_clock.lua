@@ -45,6 +45,75 @@ function M.format_time(now_epoch, cfg)
   return text
 end
 
+function M.format_date(now_epoch, cfg)
+  cfg = cfg or {}
+  now_epoch = math.floor(now_epoch)
+  local mode = cfg.format or "textual"
+  local with_year = bool_value(cfg.with_year)
+  local lang = cfg.lang or "ja"
+  local t = os.date("*t", now_epoch)
+
+  if mode == "numeric" then
+    return string.format("%04d-%02d-%02d", t.year, t.month, t.day)
+  end
+
+  if lang == "en" then
+    local weekdays = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }
+    local months = {
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    }
+    local text = string.format("%s, %s %d", weekdays[t.wday], months[t.month], t.day)
+    if with_year then
+      text = text .. string.format(", %04d", t.year)
+    end
+    return text
+  end
+
+  local weekdays = { "日", "月", "火", "水", "木", "金", "土" }
+  local text = string.format("%d月%d日（%s）", t.month, t.day, weekdays[t.wday])
+  if with_year then
+    text = string.format("%04d年%s", t.year, text)
+  end
+  return text
+end
+
+function M.unescape(text)
+  local raw = tostring(text or "")
+  local out = {}
+  local i = 1
+  while i <= #raw do
+    local ch = raw:sub(i, i)
+    if ch == "\\" and i < #raw then
+      local next_ch = raw:sub(i + 1, i + 1)
+      if next_ch == "n" then
+        out[#out + 1] = "\n"
+        i = i + 2
+      elseif next_ch == "\\" then
+        out[#out + 1] = "\\"
+        i = i + 2
+      else
+        out[#out + 1] = ch
+        i = i + 1
+      end
+    else
+      out[#out + 1] = ch
+      i = i + 1
+    end
+  end
+  return table.concat(out)
+end
+
 function M.alignment_for(corner)
   local map = {
     topLeft = 7,

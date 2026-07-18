@@ -1,0 +1,22 @@
+{
+  "sources": [
+    {
+      "id": "classic63",
+      "name": "Apple tvOS 12 (63)",
+      "manifest_url": "https://raw.githubusercontent.com/kopiro/xscreensaver-apple-aerial/main/entries.json",
+      "format": "classic"
+    },
+    {
+      "id": "tvos16",
+      "name": "Apple tvOS 16 (114)",
+      "manifest_url": "https://gist.githubusercontent.com/theothernt/68c3cf95e801ad22c7cea54e9a179c17/raw/f8ae6857600e9caf91b30e54bbbb19420af0935f/entries.json",
+      "format": "tvos13plus"
+    },
+    {
+      "id": "community",
+      "name": "Community (glouel)",
+      "manifest_url": "https://raw.githubusercontent.com/glouel/AerialCommunity/master/entries.json",
+      "format": "classic"
+    }
+  ]
+}

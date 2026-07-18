@@ -18,11 +18,14 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 DEFAULTS = {
     "AERIAL_QUALITY": "1080-sdr",
+    "AERIAL_SOURCE": "classic63",
     "AERIAL_MANIFEST_URL": "https://raw.githubusercontent.com/kopiro/xscreensaver-apple-aerial/main/entries.json",
     "AERIAL_CACHE_DIR": "/var/lib/aerial-signage/videos",
     "AERIAL_PLAYLIST": "/var/lib/aerial-signage/playlist.txt",
     "AERIAL_VIDEO_LIMIT": "0",
     "AERIAL_STRICT_QUALITY": "0",
+    "AERIAL_SCENES": "",
+    "AERIAL_HIDDEN_VIDEOS": "",
 }
 
 
@@ -38,6 +41,7 @@ QUALITY_KEYS = {
 }
 
 FALLBACK_KEYS = ["url-1080-SDR", "url-4K-SDR", "url-1080-H264"]
+SCENES = {"countryside", "nature", "city", "beach", "sea", "space", "other"}
 
 
 def log(message: str) -> None:
@@ -50,6 +54,14 @@ def script_root() -> Path:
 
 def bundled_manifest_path() -> Path:
     return script_root() / "manifest" / "entries.json"
+
+
+def sources_path() -> Path:
+    return script_root() / "manifest" / "sources.json"
+
+
+def scene_map_path() -> Path:
+    return script_root() / "manifest" / "scene_map.json"
 
 
 CONFIG_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -129,11 +141,14 @@ def merged_config(args: argparse.Namespace) -> Dict[str, str]:
 
     overrides = {
         "AERIAL_QUALITY": args.quality,
+        "AERIAL_SOURCE": args.source,
         "AERIAL_MANIFEST_URL": args.manifest_url,
         "AERIAL_CACHE_DIR": args.cache_dir,
         "AERIAL_PLAYLIST": args.playlist,
         "AERIAL_VIDEO_LIMIT": str(args.limit) if args.limit is not None else None,
         "AERIAL_STRICT_QUALITY": None if args.strict_quality is None else ("1" if args.strict_quality else "0"),
+        "AERIAL_SCENES": args.scenes,
+        "AERIAL_HIDDEN_VIDEOS": args.hidden_videos,
     }
     for key, value in overrides.items():
         if value is not None:
@@ -149,6 +164,124 @@ def normalize_entries(manifest: Any) -> List[Dict[str, Any]]:
     else:
         raise ValueError("manifest must be a list or an object with an assets list")
     return [entry for entry in raw_entries if isinstance(entry, dict)]
+
+
+def load_json_file(path: Path, default: Any) -> Any:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return default
+
+
+def load_sources(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    data = load_json_file(path or sources_path(), {"sources": []})
+    if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
+        return []
+    return [item for item in data["sources"] if isinstance(item, dict)]
+
+
+def resolve_manifest_url(source_id: str, manifest_url: str, source_items: Optional[List[Dict[str, Any]]] = None) -> str:
+    if manifest_url and manifest_url != DEFAULTS["AERIAL_MANIFEST_URL"]:
+        return manifest_url
+    for source in source_items if source_items is not None else load_sources():
+        if source.get("id") == source_id and isinstance(source.get("manifest_url"), str):
+            return str(source["manifest_url"])
+    return DEFAULTS["AERIAL_MANIFEST_URL"]
+
+
+def parse_csv(raw: str) -> List[str]:
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+def normalize_scene(raw: Any) -> Optional[str]:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "countryside": "countryside",
+        "landscape": "nature",
+        "nature": "nature",
+        "city": "city",
+        "cityscape": "city",
+        "urban": "city",
+        "beach": "beach",
+        "sea": "sea",
+        "ocean": "sea",
+        "underwater": "sea",
+        "space": "space",
+        "earth": "space",
+        "other": "other",
+    }
+    return aliases.get(value, value if value in SCENES else "other")
+
+
+def load_scene_map(path: Optional[Path] = None) -> Dict[str, str]:
+    data = load_json_file(path or scene_map_path(), {})
+    if not isinstance(data, dict):
+        return {}
+    scene_map: Dict[str, str] = {}
+    for key, value in data.items():
+        scene = normalize_scene(value)
+        if isinstance(key, str) and scene:
+            scene_map[key] = scene
+    return scene_map
+
+
+def entry_id(entry: Dict[str, Any]) -> str:
+    raw = entry.get("id")
+    if isinstance(raw, str) and raw:
+        return raw
+    for key in QUALITY_KEYS.values():
+        url = entry.get(key)
+        if isinstance(url, str) and url:
+            return filename_for_url(url)
+    return ""
+
+
+def entry_label(entry: Dict[str, Any]) -> str:
+    for key in ("accessibilityLabel", "label", "name", "title"):
+        raw = entry.get(key)
+        if isinstance(raw, str) and raw:
+            return raw
+    return entry_id(entry)
+
+
+def resolve_scene(entry: Dict[str, Any], scene_map: Dict[str, str]) -> str:
+    scene = normalize_scene(entry.get("scene") or entry.get("category"))
+    if scene:
+        return scene
+    # tvOS13+ manifests: entry["categories"] is a list of category UUIDs; the
+    # bundled scene_map.json maps those UUIDs to scene names.
+    raw_categories = entry.get("categories")
+    if isinstance(raw_categories, list):
+        for category in raw_categories:
+            if isinstance(category, str) and category in scene_map:
+                return scene_map[category]
+    asset_id = entry_id(entry)
+    label = entry_label(entry)
+    for needle, mapped_scene in scene_map.items():
+        if needle == asset_id or needle.lower() in label.lower():
+            return mapped_scene
+    return "nature"
+
+
+def filter_entries(
+    entries: Iterable[Dict[str, Any]], scenes_csv: str, hidden_csv: str, scene_map: Dict[str, str]
+) -> List[Dict[str, Any]]:
+    wanted = {normalize_scene(item) for item in parse_csv(scenes_csv)}
+    wanted.discard(None)
+    hidden = set(parse_csv(hidden_csv))
+    filtered: List[Dict[str, Any]] = []
+    for entry in entries:
+        asset_id = entry_id(entry)
+        scene = resolve_scene(entry, scene_map)
+        if wanted and scene not in wanted:
+            continue
+        if asset_id in hidden:
+            continue
+        filtered.append(entry)
+    return filtered
 
 
 def quality_to_key(quality: str) -> str:
@@ -186,6 +319,20 @@ def select_urls(
     return urls
 
 
+def select_entries(
+    entries: Iterable[Dict[str, Any]], quality: str, limit: int = 0, strict: bool = False
+) -> List[Tuple[Dict[str, Any], str]]:
+    selected_entries: List[Tuple[Dict[str, Any], str]] = []
+    for entry in entries:
+        selected = select_variant(entry, quality, strict)
+        if selected is None:
+            continue
+        selected_entries.append((entry, selected[1]))
+        if limit > 0 and len(selected_entries) >= limit:
+            break
+    return selected_entries
+
+
 def dry_run_urls(manifest: Any, quality: str, limit: int = 0, strict: bool = False) -> List[str]:
     return select_urls(normalize_entries(manifest), quality, limit, strict)
 
@@ -194,12 +341,12 @@ def fetch_url(url: str, timeout: int = 45) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         status = getattr(response, "status", 200)
-        if status != 200:
+        if status not in (None, 200):
             raise RuntimeError(f"HTTP {status} for {url}")
         return response.read()
 
 
-def load_manifest(manifest_url: str) -> Tuple[List[Dict[str, Any]], str]:
+def load_manifest(manifest_url: str, source_id: str = "") -> Tuple[List[Dict[str, Any]], str]:
     try:
         data = fetch_url(manifest_url)
         entries = normalize_entries(json.loads(data.decode("utf-8")))
@@ -207,6 +354,10 @@ def load_manifest(manifest_url: str) -> Tuple[List[Dict[str, Any]], str]:
         return entries, manifest_url
     except Exception as exc:  # noqa: BLE001 - fall back on any fetch/parse/schema failure.
         fallback = bundled_manifest_path()
+        if source_id:
+            per_source = script_root() / "manifest" / f"entries-{source_id}.json"
+            if per_source.exists():
+                fallback = per_source
         log(f"remote manifest failed ({exc}); using bundled fallback {fallback}")
         with fallback.open("r", encoding="utf-8") as handle:
             return normalize_entries(json.load(handle)), str(fallback)
@@ -293,6 +444,45 @@ def write_playlist(paths: Iterable[Path], playlist: Path) -> None:
     fsync_directory(playlist.parent)
 
 
+def tsv_field(value: Any) -> str:
+    return str(value or "").replace("\t", " ").replace("\r", " ").replace("\n", " ")
+
+
+def write_labels(rows: Iterable[Tuple[str, str, str, str]], labels_file: Path) -> None:
+    labels_file.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["\t".join(tsv_field(field) for field in row) for row in rows]
+    tmp_path = labels_file.with_suffix(labels_file.suffix + ".part")
+    tmp_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    with tmp_path.open("rb") as handle:
+        os.fsync(handle.fileno())
+    tmp_path.replace(labels_file)
+    fsync_directory(labels_file.parent)
+
+
+def list_video_rows(
+    entries: Iterable[Dict[str, Any]], quality: str, strict: bool, cache_dir: Path, scene_map: Dict[str, str]
+) -> List[Tuple[str, str, str, str, str]]:
+    rows: List[Tuple[str, str, str, str, str]] = []
+    for entry in entries:
+        selected = select_variant(entry, quality, strict)
+        cached = "0"
+        if selected is not None:
+            try:
+                cached = "1" if (cache_dir / filename_for_url(selected[1])).exists() else "0"
+            except ValueError:
+                cached = "0"
+        rows.append(
+            (
+                entry_id(entry),
+                resolve_scene(entry, scene_map),
+                entry_label(entry),
+                "1" if isinstance(entry.get("url-1080-H264"), str) and entry.get("url-1080-H264") else "0",
+                cached,
+            )
+        )
+    return rows
+
+
 def parse_limit(raw: str) -> int:
     try:
         value = int(raw)
@@ -305,10 +495,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fetch Apple Aerial videos and write an mpv playlist.")
     parser.add_argument("--config", help="KEY=VALUE config file to read before environment overrides")
     parser.add_argument("--quality", choices=sorted(QUALITY_KEYS))
+    parser.add_argument("--source")
     parser.add_argument("--manifest-url")
     parser.add_argument("--cache-dir")
     parser.add_argument("--playlist")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--scenes", help="comma-separated scenes to include")
+    parser.add_argument("--hidden-videos", help="comma-separated asset IDs to hide")
     parser.add_argument(
         "--strict-quality",
         action=argparse.BooleanOptionalAction,
@@ -317,6 +510,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true", help="print selected URLs without writing files")
     parser.add_argument("--print-manifest", action="store_true", help="fetch manifest and print entry count")
+    parser.add_argument("--list-videos", action="store_true", help="print id, scene, label, H264 and cache status as TSV")
     return parser
 
 
@@ -325,15 +519,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     cfg = merged_config(args)
     limit = parse_limit(cfg["AERIAL_VIDEO_LIMIT"])
     strict = is_truthy(cfg["AERIAL_STRICT_QUALITY"])
+    scene_map = load_scene_map()
+    manifest_url = resolve_manifest_url(cfg["AERIAL_SOURCE"], cfg["AERIAL_MANIFEST_URL"])
 
     try:
-        entries, source = load_manifest(cfg["AERIAL_MANIFEST_URL"])
-        urls = select_urls(entries, cfg["AERIAL_QUALITY"], limit, strict)
+        entries, source = load_manifest(manifest_url, cfg["AERIAL_SOURCE"])
+        selected_entries = select_entries(
+            filter_entries(entries, cfg["AERIAL_SCENES"], cfg["AERIAL_HIDDEN_VIDEOS"], scene_map),
+            cfg["AERIAL_QUALITY"],
+            limit,
+            strict,
+        )
+        urls = [url for _, url in selected_entries]
     except Exception as exc:  # noqa: BLE001 - CLI reports any configuration/manifest issue.
         log(str(exc))
         return 2
 
-    if strict and limit == 0 and len(urls) < len(entries):
+    if args.list_videos:
+        for row in list_video_rows(entries, cfg["AERIAL_QUALITY"], strict, Path(cfg["AERIAL_CACHE_DIR"]), scene_map):
+            print("\t".join(tsv_field(field) for field in row))
+        return 0
+
+    if strict and limit == 0 and len(urls) < len(filter_entries(entries, cfg["AERIAL_SCENES"], cfg["AERIAL_HIDDEN_VIDEOS"], scene_map)):
         log(
             f"strict quality {cfg['AERIAL_QUALITY']}: {len(urls)} of {len(entries)} entries have that variant"
         )
@@ -352,17 +559,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     available: List[Path] = []
-    for index, url in enumerate(urls, 1):
+    label_rows: List[Tuple[str, str, str, str]] = []
+    for index, (entry, url) in enumerate(selected_entries, 1):
         log(f"[{index}/{len(urls)}] {url}")
         path = download_one(url, cache_dir)
         if path is not None and path.exists() and path.stat().st_size > 0:
             available.append(path)
+            label_rows.append((path.name, entry_label(entry), entry_id(entry), resolve_scene(entry, scene_map)))
 
     if not available:
         log("no videos available; playlist was not written")
         return 1
 
     write_playlist(available, playlist)
+    write_labels(label_rows, playlist.parent / "labels.tsv")
     log(f"wrote playlist {playlist} with {len(available)} videos")
     return 0
 

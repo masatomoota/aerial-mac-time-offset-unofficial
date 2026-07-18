@@ -14,9 +14,9 @@ AERIAL_CLOCK_HIDE_AMPM=0
 # strftime format used only when AERIAL_CLOCK_FORMAT=custom
 AERIAL_CLOCK_CUSTOM_FORMAT=%H:%M
 # topLeft | topRight | bottomLeft | bottomRight | center
-AERIAL_CLOCK_CORNER=bottomRight
+AERIAL_CLOCK_CORNER=bottomLeft
 # ASS font size at a 1920x1080 reference resolution
-AERIAL_CLOCK_FONT_SIZE=48
+AERIAL_CLOCK_FONT_SIZE=50
 # Optional font family name. Empty uses mpv default.
 AERIAL_CLOCK_FONT=
 # Pixel margin from screen edges at a 1920x1080 reference resolution
@@ -24,13 +24,47 @@ AERIAL_CLOCK_MARGIN=60
 # RRGGBB text color. Lua converts this to ASS BGR internally.
 AERIAL_CLOCK_COLOR=FFFFFF
 
+# --- Date overlay ---
+AERIAL_DATE_ENABLED=1
+AERIAL_DATE_CORNER=bottomLeft
+AERIAL_DATE_FONT_SIZE=25
+AERIAL_DATE_FONT=
+AERIAL_DATE_COLOR=FFFFFF
+AERIAL_DATE_MARGIN=60
+# textual | numeric
+AERIAL_DATE_FORMAT=textual
+# 1=include year. Numeric format always includes year.
+AERIAL_DATE_WITH_YEAR=0
+# ja | en
+AERIAL_DATE_LANG=ja
+
+# --- Location overlay ---
+AERIAL_LOC_ENABLED=1
+AERIAL_LOC_CORNER=topRight
+AERIAL_LOC_FONT_SIZE=28
+AERIAL_LOC_FONT=
+AERIAL_LOC_COLOR=FFFFFF
+AERIAL_LOC_MARGIN=60
+AERIAL_LABELS_FILE=/var/lib/aerial-signage/labels.tsv
+
+# --- Message overlay ---
+AERIAL_MSG_ENABLED=1
+AERIAL_MSG_CORNER=bottomRight
+AERIAL_MSG_FONT_SIZE=24
+AERIAL_MSG_FONT=
+AERIAL_MSG_COLOR=FFFFFF
+AERIAL_MSG_MARGIN=60
+# Use literal \n for line breaks; values containing spaces must be quoted.
+AERIAL_MSG_TEXT="Studio Vibes Wi-Fi\nSSID : fcm-dkym-booth\nPW : dkymfcm117"
+
 # --- Video source ---
 # 1080-sdr | 1080-hdr | 4k-sdr | 4k-hdr | 1080-h264
 # HEVC is the default because both Pi 4 and Pi 5 hardware-decode 4K HEVC.
 AERIAL_QUALITY=1080-sdr
-# Default = the real Apple Aerial set (63 videos, streamed from sylvan.apple.com).
-# Alternative community set (GitHub-hosted, ~20 donated videos, very stable):
-#   https://raw.githubusercontent.com/glouel/AerialCommunity/master/entries.json
+# classic63 | tvos16 | community. tvos16 ships with a placeholder URL in
+# manifest/sources.json and must be filled by orchestration before use.
+AERIAL_SOURCE=classic63
+# Back-compat override. If changed from this default, it wins over AERIAL_SOURCE.
 AERIAL_MANIFEST_URL=https://raw.githubusercontent.com/kopiro/xscreensaver-apple-aerial/main/entries.json
 AERIAL_CACHE_DIR=/var/lib/aerial-signage/videos
 AERIAL_PLAYLIST=/var/lib/aerial-signage/playlist.txt
@@ -40,6 +74,11 @@ AERIAL_VIDEO_LIMIT=0
 # codec. Set to 1 on Raspberry Pi 3 together with AERIAL_QUALITY=1080-h264,
 # because Pi 3 has no HEVC hardware decode and cannot play the HEVC fallbacks.
 AERIAL_STRICT_QUALITY=0
+# Empty = all scenes. Otherwise comma-separated:
+# countryside,nature,city,beach,sea,space,other
+AERIAL_SCENES=
+# Comma-separated asset ids hidden from playlist generation.
+AERIAL_HIDDEN_VIDEOS=
 AERIAL_SHUFFLE=1
 
 # --- mpv / display ---

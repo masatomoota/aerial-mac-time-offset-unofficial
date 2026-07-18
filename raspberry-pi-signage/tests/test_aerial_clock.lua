@@ -47,4 +47,18 @@ assert_equal(clock.alignment_for("center"), 5, "center")
 assert_equal(clock.alignment_for("unknown"), 3, "default alignment")
 assert_equal(clock.rgb_to_ass_bgr("FF0000"), "&H0000FF&", "red bgr")
 
+assert_equal(clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "textual", lang = "ja" }), "7月18日（土）", "ja textual date")
+assert_equal(
+  clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "textual", lang = "ja", with_year = true }),
+  "2026年7月18日（土）",
+  "ja textual date with year"
+)
+assert_equal(
+  clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "textual", lang = "en" }),
+  "Saturday, July 18",
+  "en textual date"
+)
+assert_equal(clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "numeric" }), "2026-07-18", "numeric date")
+assert_equal(clock.unescape("a\\nb\\\\c"), "a\nb\\c", "unescape newline and backslash")
+
 print("OK")

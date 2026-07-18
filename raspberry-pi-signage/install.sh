@@ -143,8 +143,9 @@ printf 'Installing systemd units...\n'
 render_unit "$script_dir/systemd/aerial-signage.service" "/etc/systemd/system/aerial-signage.service"
 render_unit "$script_dir/systemd/aerial-fetch.service" "/etc/systemd/system/aerial-fetch.service"
 install -m 0644 "$script_dir/systemd/aerial-fetch.timer" "/etc/systemd/system/aerial-fetch.timer"
+install -m 0644 "$script_dir/systemd/aerial-web.service" "/etc/systemd/system/aerial-web.service"
 systemctl daemon-reload
-systemctl enable aerial-signage.service aerial-fetch.timer
+systemctl enable aerial-signage.service aerial-fetch.timer aerial-web.service
 
 if [[ "$no_boot_config" -eq 0 ]] && command -v raspi-config >/dev/null 2>&1; then
   printf 'Configuring boot-to-console via raspi-config...\n'
@@ -160,4 +161,8 @@ Next steps:
      sudo -u "$AERIAL_USER" AERIAL_CONFIG=/etc/aerial-signage/aerial-signage.conf /opt/aerial-signage/bin/aerial-fetch --limit 10
   3. Reboot to start the kiosk on tty1:
      sudo reboot
+
+Web UI:
+  After boot, open http://<raspberry-pi-ip>:8080/ from the LAN.
+  Set AERIAL_WEB_TOKEN in the service environment if you need a simple LAN token gate.
 EOF

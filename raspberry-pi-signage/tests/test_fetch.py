@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 import pathlib
+import contextlib
+import io
 import tempfile
 import unittest
 
@@ -169,6 +171,85 @@ class FetchTests(unittest.TestCase):
             "https://example.invalid/b.mov",
         ])
         self.assertEqual(fetch.dry_run_urls(manifest, "4k-hdr", 1), ["https://example.invalid/a.mov"])
+
+    def test_sources_resolution_back_compat_manifest_override(self):
+        sources = [
+            {"id": "classic63", "manifest_url": "https://example.invalid/classic.json"},
+            {"id": "community", "manifest_url": "https://example.invalid/community.json"},
+        ]
+        self.assertEqual(
+            fetch.resolve_manifest_url("community", fetch.DEFAULTS["AERIAL_MANIFEST_URL"], sources),
+            "https://example.invalid/community.json",
+        )
+        self.assertEqual(
+            fetch.resolve_manifest_url("community", "https://override.invalid/entries.json", sources),
+            "https://override.invalid/entries.json",
+        )
+
+    def test_scene_filtering_and_hidden_videos(self):
+        entries = [
+            {"id": "a", "accessibilityLabel": "Coast", "scene": "sea"},
+            {"id": "b", "accessibilityLabel": "Tokyo", "category": "city"},
+            {"id": "c", "accessibilityLabel": "Forest Trail"},
+            {"id": "d", "accessibilityLabel": "Mars Orbit"},
+        ]
+        scene_map = {"Forest": "nature", "Mars": "space"}
+        filtered = fetch.filter_entries(entries, "sea,nature,space", "d", scene_map)
+        self.assertEqual([entry["id"] for entry in filtered], ["a", "c"])
+        self.assertEqual(fetch.resolve_scene(entries[2], scene_map), "nature")
+        self.assertEqual(fetch.resolve_scene({"id": "x", "accessibilityLabel": "Unknown"}, {}), "nature")
+
+    def test_labels_tsv_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            labels = pathlib.Path(tmp) / "labels.tsv"
+            fetch.write_labels([("a.mov", "City\tLabel", "asset-1", "city")], labels)
+            self.assertEqual(labels.read_text(encoding="utf-8"), "a.mov\tCity Label\tasset-1\tcity\n")
+
+    def test_list_videos_output_shape_from_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            cache = tmp_path / "cache"
+            cache.mkdir()
+            (cache / "a.mov").write_text("cached", encoding="utf-8")
+            manifest = tmp_path / "entries.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "id": "a",
+                                "accessibilityLabel": "Sea One",
+                                "scene": "sea",
+                                "url-1080-H264": "https://example.invalid/a.mov",
+                            },
+                            {
+                                "id": "b",
+                                "accessibilityLabel": "City Two",
+                                "category": "city",
+                                "url-1080-SDR": "https://example.invalid/b.mov",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = fetch.main(
+                    [
+                        "--manifest-url",
+                        manifest.as_uri(),
+                        "--quality",
+                        "1080-h264",
+                        "--cache-dir",
+                        str(cache),
+                        "--list-videos",
+                    ]
+                )
+            self.assertEqual(code, 0)
+            rows = [line.split("\t") for line in out.getvalue().splitlines()]
+            self.assertEqual(rows[0], ["a", "sea", "Sea One", "1", "1"])
+            self.assertEqual(rows[1], ["b", "city", "City Two", "0", "0"])
 
 
 if __name__ == "__main__":
