@@ -329,3 +329,11 @@ produced the correct offset time (`now + 125 min`) — the signature feature wor
 This repo has **no `deploy.sh`** and this is a Pi-targeted deliverable. "Deploy" here = pushing to
 GitHub (done) so any Pi can `git pull` and run `raspberry-pi-signage/install.sh`. There is no cloud
 service to deploy to and no Pi attached to the dev machine.
+
+## Session 6 close-out (2026-07-19): repo split
+
+raspberry-pi-signage/ was split into the standalone PRIVATE repo
+https://github.com/masatomoota/aerial-raspi4-unofficial (tree at root; complete
+knowledge record incl. all failures in docs/PROJECT_HISTORY.md; LLM-resumable
+handoff in docs/HANDOFF.md). Pi development continues THERE. Pre-split history
+remains in this repo's log.

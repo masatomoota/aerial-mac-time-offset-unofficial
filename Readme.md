@@ -30,8 +30,8 @@ This repository is used **solely** for development.
 
 This fork also includes a Linux/Raspberry Pi 4-5 digital-signage player that loops Apple Aerial
 videos fullscreen with the same offset clock (`AERIAL_CLOCK_OFFSET_MINUTES`). It uses `mpv` with
-hardware HEVC decode instead of the macOS screensaver stack. See
-[`raspberry-pi-signage/`](./raspberry-pi-signage/README.md).
+hardware HEVC decode instead of the macOS screensaver stack. Now maintained in its own private repo:
+[masatomoota/aerial-raspi4-unofficial](https://github.com/masatomoota/aerial-raspi4-unofficial).
 
 Starting with version 2.3.0, Aerial can now display current weather information *and* forecasts to your location, thanks to [OpenWeather](https://openweathermap.org). 
 

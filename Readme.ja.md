@@ -31,7 +31,7 @@ Aerial は完全にオープンソースで、開発への貢献を歓迎しま�
 本 Fork には、Apple Aerial 動画を全画面ループ再生し、同じオフセット時計
 （`AERIAL_CLOCK_OFFSET_MINUTES`）を重畳する Linux / Raspberry Pi 4・5 向けサイネージプレーヤーも
 含まれています。macOS スクリーンセーバー基盤ではなく `mpv`（HEVC ハードウェアデコード）を使います。
-詳細は [`raspberry-pi-signage/`](./raspberry-pi-signage/README.ja.md) を参照してください。
+現在は専用プライベートリポジトリ [masatomoota/aerial-raspi4-unofficial](https://github.com/masatomoota/aerial-raspi4-unofficial) で保守しています。
 
 Aerial は 2.3.0 以降、[OpenWeather](https://openweathermap.org) の提供により、現在の天気と予報の表示にも対応しています。
 
