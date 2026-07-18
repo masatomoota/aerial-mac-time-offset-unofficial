@@ -36,3 +36,21 @@
       TTY reset options; still unvalidated on hardware).
 - [ ] Pi 3: validate the `1080-h264` + `AERIAL_STRICT_QUALITY=1` + `hwdec=v4l2m2m-copy` path.
 - [ ] Validate full-size Apple downloads over the network; drop `--limit` for the full set.
+
+## Session 5 Plan (Windows parity fixes)
+
+- [x] Read the prior Windows-parity audit, Windows settings UI/runtime code, DisplaySettingsTransferFormat, existing Pi web/fetch/lua/tests/docs.
+- [x] Add one documented enum mapping table for plist raw values, Pi env strings, and Windows UI values; use it in web import/UI and Lua aliases.
+- [x] Make clock and date overlays render the same offset moment, add custom date/time format support, and switch default offset to `0`.
+- [x] Add Windows/spec positions (`topCenter`, `bottomCenter`, `screenCenter`/`center`, `random`, plus Windows aliases) and per-position stacking.
+- [x] Add Windows-style location display modes with safe fallback from labels TSV.
+- [x] Restructure the web UI sections/labels/controls to mirror Windows settings while preserving dark theme, endpoints, save->fetch->restart, toast, and mpv stats.
+- [x] Add `Import Display Settings...` plist import and a fixture-backed unit test.
+- [x] Update README.md, README.ja.md, handoff, and thread notes; run the required self-checks.
+
+## Session 5 Review
+
+- Windows/spec display parity was added without changing the mpv/Lua architecture or existing HTTP endpoint names.
+- Required self-checks passed: py_compile, `tests/test_fetch.py`, `tests/test_web.py`, Lua unit test, `luac -p`, `bash -n`, and `shellcheck`.
+- Additional local Web UI smoke test passed on port 18991 for `/`, `/api/state`, and `/api/import-display-settings`.
+- No git commands were run, per the user's explicit constraint.

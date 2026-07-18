@@ -202,8 +202,13 @@ class FetchTests(unittest.TestCase):
     def test_labels_tsv_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             labels = pathlib.Path(tmp) / "labels.tsv"
-            fetch.write_labels([("a.mov", "City\tLabel", "asset-1", "city")], labels)
-            self.assertEqual(labels.read_text(encoding="utf-8"), "a.mov\tCity Label\tasset-1\tcity\n")
+            fetch.write_labels([("a.mov", "City\tLabel", "asset-1", "city", "City Name", '{"0":"POI"}')], labels)
+            self.assertEqual(labels.read_text(encoding="utf-8"), 'a.mov\tCity Label\tasset-1\tcity\tCity Name\t{"0":"POI"}\n')
+
+    def test_entry_name_and_poi_json(self):
+        entry = {"id": "asset-1", "accessibilityLabel": "Label", "name": "Video Name", "pointsOfInterest": {"10": "Point"}}
+        self.assertEqual(fetch.entry_name(entry), "Video Name")
+        self.assertEqual(fetch.entry_poi_json(entry), '{"10":"Point"}')
 
     def test_list_videos_output_shape_from_cli(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,7 +4,7 @@
 # --- Clock overlay ---
 AERIAL_CLOCK_ENABLED=1
 # Minutes added to real time. Can be negative, e.g. -540.
-AERIAL_CLOCK_OFFSET_MINUTES=10
+AERIAL_CLOCK_OFFSET_MINUTES=0
 # 24h | 12h | custom
 AERIAL_CLOCK_FORMAT=24h
 # 1=show seconds
@@ -13,7 +13,7 @@ AERIAL_CLOCK_SECONDS=0
 AERIAL_CLOCK_HIDE_AMPM=0
 # strftime format used only when AERIAL_CLOCK_FORMAT=custom
 AERIAL_CLOCK_CUSTOM_FORMAT=%H:%M
-# topLeft | topRight | bottomLeft | bottomRight | center
+# topLeft | topCenter | topRight | bottomLeft | bottomCenter | bottomRight | left | right | screenCenter | random
 AERIAL_CLOCK_CORNER=bottomLeft
 # ASS font size at a 1920x1080 reference resolution
 AERIAL_CLOCK_FONT_SIZE=50
@@ -25,30 +25,34 @@ AERIAL_CLOCK_MARGIN=60
 AERIAL_CLOCK_COLOR=FFFFFF
 
 # --- Date overlay ---
-AERIAL_DATE_ENABLED=1
+AERIAL_DATE_ENABLED=0
 AERIAL_DATE_CORNER=bottomLeft
 AERIAL_DATE_FONT_SIZE=25
 AERIAL_DATE_FONT=
 AERIAL_DATE_COLOR=FFFFFF
 AERIAL_DATE_MARGIN=60
-# textual | numeric
+# textual | compact | numeric | custom
 AERIAL_DATE_FORMAT=textual
+# strftime format used only when AERIAL_DATE_FORMAT=custom
+AERIAL_DATE_CUSTOM_FORMAT=%Y-%m-%d
 # 1=include year. Numeric format always includes year.
 AERIAL_DATE_WITH_YEAR=0
 # ja | en
 AERIAL_DATE_LANG=ja
 
 # --- Location overlay ---
-AERIAL_LOC_ENABLED=1
+AERIAL_LOC_ENABLED=0
 AERIAL_LOC_CORNER=topRight
 AERIAL_LOC_FONT_SIZE=28
 AERIAL_LOC_FONT=
 AERIAL_LOC_COLOR=FFFFFF
 AERIAL_LOC_MARGIN=60
+# accessibilityLabel | name | poi | filename
+AERIAL_LOC_MODE=accessibilityLabel
 AERIAL_LABELS_FILE=/var/lib/aerial-signage/labels.tsv
 
 # --- Message overlay ---
-AERIAL_MSG_ENABLED=1
+AERIAL_MSG_ENABLED=0
 AERIAL_MSG_CORNER=bottomRight
 AERIAL_MSG_FONT_SIZE=24
 AERIAL_MSG_FONT=

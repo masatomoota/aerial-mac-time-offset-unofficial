@@ -44,14 +44,27 @@ local ok, err = pcall(function()
   end
 
   local function base_position(corner, margin)
+    corner = clock.normalize_corner(corner)
     if corner == "topLeft" then
       return margin, margin
+    elseif corner == "topCenter" then
+      return 960, margin
     elseif corner == "topRight" then
       return 1920 - margin, margin
     elseif corner == "bottomLeft" then
       return margin, 1080 - margin
-    elseif corner == "center" then
+    elseif corner == "bottomCenter" then
+      return 960, 1080 - margin
+    elseif corner == "bottomRight" then
+      return 1920 - margin, 1080 - margin
+    elseif corner == "left" then
+      return margin, 540
+    elseif corner == "right" then
+      return 1920 - margin, 540
+    elseif corner == "screenCenter" or corner == "center" then
       return 960, 540
+    elseif corner == "absTopRight" then
+      return 1920 - margin, margin
     end
     return 1920 - margin, 1080 - margin
   end
@@ -71,9 +84,16 @@ local ok, err = pcall(function()
       return
     end
     for line in handle:lines() do
-      local file, label = line:match("^([^\t]+)\t([^\t]*)")
+      local file, label, asset_id, scene, name, poi = line:match("^([^\t]+)\t([^\t]*)\t?([^\t]*)\t?([^\t]*)\t?([^\t]*)\t?(.*)$")
       if file and label then
-        labels[file] = label
+        labels[file] = {
+          accessibilityLabel = label,
+          label = label,
+          id = asset_id or "",
+          scene = scene or "",
+          name = name ~= "" and name or label,
+          poi = poi or "",
+        }
       end
     end
     handle:close()
@@ -94,21 +114,21 @@ local ok, err = pcall(function()
     },
     DATE = {
       prefix = "AERIAL_DATE",
-      default_enabled = "1",
+      default_enabled = "0",
       default_corner = "bottomLeft",
       default_size = 25,
       default_margin = 60,
     },
     MSG = {
       prefix = "AERIAL_MSG",
-      default_enabled = "1",
+      default_enabled = "0",
       default_corner = "bottomRight",
       default_size = 24,
       default_margin = 60,
     },
     LOC = {
       prefix = "AERIAL_LOC",
-      default_enabled = "1",
+      default_enabled = "0",
       default_corner = "topRight",
       default_size = 28,
       default_margin = 60,
@@ -126,7 +146,7 @@ local ok, err = pcall(function()
     return {
       name = name,
       overlay = overlay,
-      corner = env(spec.prefix .. "_CORNER", spec.default_corner),
+      corner = clock.normalize_corner(env(spec.prefix .. "_CORNER", spec.default_corner)),
       font_size = number_env(spec.prefix .. "_FONT_SIZE", spec.default_size),
       font = env(spec.prefix .. "_FONT", ""),
       color = clock.rgb_to_ass_bgr(env(spec.prefix .. "_COLOR", "FFFFFF")),
@@ -154,36 +174,73 @@ local ok, err = pcall(function()
     format = env("AERIAL_DATE_FORMAT", "textual"),
     with_year = truthy(env("AERIAL_DATE_WITH_YEAR", "0")),
     lang = env("AERIAL_DATE_LANG", "ja"),
+    custom_format = env("AERIAL_DATE_CUSTOM_FORMAT", "%Y-%m-%d"),
   }
 
   if layers.MSG then
     layers.MSG.text = clock.unescape(env("AERIAL_MSG_TEXT", "Studio Vibes Wi-Fi\\nSSID : fcm-dkym-booth\\nPW : dkymfcm117"))
   end
 
-  local function current_label()
+  math.randomseed(os.time())
+  local random_positions = { "topLeft", "topCenter", "topRight", "bottomLeft", "bottomCenter", "bottomRight", "left", "right", "screenCenter" }
+  for _, layer in pairs(layers) do
+    if layer.corner == "random" then
+      layer.corner = random_positions[math.random(#random_positions)]
+    end
+  end
+
+  local function current_location_text()
     local path = nil
     if mp and mp.get_property then
       path = mp.get_property("path") or mp.get_property("filename")
     end
     local file = basename(path)
-    if labels[file] then
-      return labels[file]
+    local row = labels[file]
+    local mode = env("AERIAL_LOC_MODE", "accessibilityLabel")
+    if row then
+      if mode == "filename" then
+        return strip_ext(file)
+      elseif mode == "name" then
+        return row.name ~= "" and row.name or row.accessibilityLabel
+      elseif mode == "poi" then
+        if row.poi ~= "" then
+          local position = 0
+          if mp and mp.get_property_number then
+            position = mp.get_property_number("time-pos", 0) or 0
+          end
+          local best_time = -1
+          local best_text = ""
+          for seconds, text in row.poi:gmatch('"([^"]+)":"([^"]*)"') do
+            local numeric_seconds = tonumber(seconds)
+            if numeric_seconds and numeric_seconds <= position and numeric_seconds >= best_time then
+              best_time = numeric_seconds
+              best_text = text
+            end
+          end
+          if best_text ~= "" then
+            return best_text
+          end
+        end
+        return row.accessibilityLabel
+      end
+      return row.accessibilityLabel ~= "" and row.accessibilityLabel or strip_ext(file)
     end
     return strip_ext(file)
   end
 
   local function refresh_dynamic_text()
+    local display_epoch = os.time() + offset_minutes * 60
     if layers.CLOCK then
-      layers.CLOCK.text = clock.format_time(os.time() + offset_minutes * 60, clock_cfg)
+      layers.CLOCK.text = clock.format_time(display_epoch, clock_cfg)
     end
     if layers.DATE then
-      layers.DATE.text = clock.format_date(os.time(), date_cfg)
+      layers.DATE.text = clock.format_date(display_epoch, date_cfg)
     end
   end
 
   local function refresh_file_text()
     if layers.LOC then
-      layers.LOC.text = current_label()
+      layers.LOC.text = current_location_text()
     end
   end
 
@@ -209,9 +266,9 @@ local ok, err = pcall(function()
       if layer then
         local x, y = base_position(layer.corner, layer.margin)
         local offset = offsets[name] or 0
-        if layer.corner == "bottomLeft" or layer.corner == "bottomRight" then
+        if layer.corner == "bottomLeft" or layer.corner == "bottomCenter" or layer.corner == "bottomRight" then
           y = y - offset
-        elseif layer.corner == "topLeft" or layer.corner == "topRight" or layer.corner == "center" then
+        elseif layer.corner == "topLeft" or layer.corner == "topCenter" or layer.corner == "topRight" or layer.corner == "screenCenter" or layer.corner == "left" or layer.corner == "right" or layer.corner == "absTopRight" then
           y = y + offset
         end
         layer.overlay.data = string.format(

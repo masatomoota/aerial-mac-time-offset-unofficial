@@ -1,5 +1,57 @@
 # Handoff — Raspberry Pi Aerial Digital Signage
 
+## Session 5 (2026-07-19): Windows-parity display fixes + plist import
+
+Role/persona for the next LLM: act as the senior maintainer of the Pi signage port, preserving the
+small mpv/Lua architecture while matching Windows/macOS display-setting semantics at config/UI
+boundaries. Tone: direct, evidence-first, no speculative device changes. Do not run git commands if
+the user repeats the Session 5 constraint; this session intentionally edited in place only.
+
+Context agreed in this session: Windows remains the production reference for UI wording/layout and
+defaults; `Documentation/DisplaySettingsTransferFormat.md` remains the import wire-format source of
+truth. The Pi runtime stays fixed-layer (`Message`, `Clock`, `Date`, `Location`) rather than adopting
+Windows's full `displayText` grid. A single mapping table now lives at
+`raspberry-pi-signage/docs/display-settings-mapping.md`.
+
+Divergences fixed:
+- Clock offset default is now `0`; date and clock render the same offset moment.
+- Text overlays default OFF except the clock (`date`, `location`, `message` off by default).
+- Clock/date support custom formats; date adds `compact`/`custom` plus `AERIAL_DATE_CUSTOM_FORMAT`.
+- Positions now include top/bottom center, screen center, random, left/right, `absTopRight`, and
+  Windows aliases (`topmiddle`, `middle`, etc.) with Lua stacking updated.
+- Location overlay supports Windows-style `Label`, `Video Name`, and `Location Information` modes
+  via `AERIAL_LOC_MODE`; `labels.tsv` was extended to carry name and POI data while retaining safe
+  fallback for old rows.
+- Web UI now mirrors Windows sections/tabs (`Settings`, `Videos`, `Text`; Settings sidebar including
+  Playback, Time & Location, Video Cache, Advanced; Text `Position`/`Text Options`) while preserving
+  dark theme, existing endpoints, Save -> fetch -> restart, toast feedback, and mpv stats.
+- New `Import Display Settings...` UI posts XML plist content to `/api/import-display-settings`.
+  The parser uses `plistlib`, decodes JSON-in-string layers, maps recognized keys only, translates
+  common DateFormatter/Moment tokens to strftime, validates every resulting config line against the
+  launcher grammar, and never executes shell/text-file references.
+
+Files touched:
+- `raspberry-pi-signage/bin/aerial-fetch`
+- `raspberry-pi-signage/bin/aerial-signage`
+- `raspberry-pi-signage/bin/aerial-web`
+- `raspberry-pi-signage/lua/aerial_clock.lua`
+- `raspberry-pi-signage/lua/clock-overlay.lua`
+- `raspberry-pi-signage/config/aerial-signage.conf.example`
+- `raspberry-pi-signage/docs/display-settings-mapping.md`
+- `raspberry-pi-signage/tests/test_fetch.py`
+- `raspberry-pi-signage/tests/test_web.py`
+- `raspberry-pi-signage/tests/test_aerial_clock.lua`
+- `raspberry-pi-signage/tests/fixtures/display-settings-sample.plist`
+- `raspberry-pi-signage/README.md`, `README.ja.md`
+- `tasks/todo.md`, `tasks/orchestration/*`, `tasks/handoff.md`
+
+How to resume:
+1. Re-run the self-check list from the user's Session 5 prompt.
+2. If a web UI issue appears, start with `bin/aerial-web`'s raw `html_page()` string and keep the
+   existing API names stable.
+3. If import behavior needs widening, update `docs/display-settings-mapping.md`, `SPEC_*` constants
+   in `bin/aerial-web`, Lua `normalize_corner`, and the fixture-backed test together.
+
 ## Session 4 (2026-07-18 PM): playback fix, Web UI, tvOS16/Sea catalog — CURRENT STATE
 
 **Playback saga (Pi 4 + 4K TV, Trixie, mpv 0.40) — root causes found by measurement:**
@@ -150,8 +202,8 @@ rejected with no side effects, bash/python config parity spot-checked on shared 
 
 Added a **Linux / Raspberry Pi 4-5 digital-signage player** to this fork under
 [`raspberry-pi-signage/`](../raspberry-pi-signage/). It loops Apple Aerial videos fullscreen with a
-configurable **offset clock** overlay, faithfully reproducing this fork's signature macOS feature
-(`AERIAL_CLOCK_OFFSET_MINUTES`, default +10 min). The macOS Xcode project is untouched — the Pi
+configurable **offset clock** overlay (`AERIAL_CLOCK_OFFSET_MINUTES`, default 0 after Session 5
+Windows parity). The macOS Xcode project is untouched — the Pi
 player is a self-contained sibling.
 
 - **Branch:** `feature/raspberry-pi-signage` (created from clean `master`).
@@ -169,7 +221,7 @@ player is a self-contained sibling.
 | --- | --- |
 | `bin/aerial-fetch` | Python 3 (stdlib only). Loads a JSON aerial manifest, selects a URL variant by `AERIAL_QUALITY`, downloads `.mov` files to the cache (atomic writes, retries, resumable, `--limit`), writes an mpv playlist. Has `--dry-run` and `--print-manifest`. Falls back to the bundled manifest if the remote is unreachable. |
 | `bin/aerial-signage` | Bash launcher. Sources the config, applies defaults, exports `AERIAL_CLOCK_*`, execs `mpv` with kiosk + `hwdec=drm-copy` flags + the Lua script + the playlist. Errors clearly if the playlist is empty. |
-| `lua/aerial_clock.lua` | **Pure** module (no mpv deps, unit-testable): `format_time(now_epoch,cfg)`, `alignment_for(corner)`, `rgb_to_ass_bgr(rrggbb)`, `offset_minutes_from_env(raw)` (defaults to 10, mirroring macOS). |
+| `lua/aerial_clock.lua` | **Pure** module (no mpv deps, unit-testable): `format_time(now_epoch,cfg)`, `format_date(now_epoch,cfg)`, `alignment_for(corner)`, `normalize_corner(corner)`, `rgb_to_ass_bgr(rrggbb)`, `offset_minutes_from_env(raw)` (defaults to 0 after Session 5 Windows parity). |
 | `lua/clock-overlay.lua` | mpv glue. Reads config from env, `require`s `aerial_clock`, draws the clock every second via `mp.create_osd_overlay` (ASS). Robust: wrapped in pcall, never crashes mpv. |
 | `config/aerial-signage.conf.example` | All settings + comments + defaults. Installed to `/etc/aerial-signage/aerial-signage.conf`. |
 | `systemd/aerial-signage.service` | Main kiosk service (tty1, DRM, `Restart=always`). `__AERIAL_USER__` is substituted by the installer. |
@@ -181,10 +233,11 @@ player is a self-contained sibling.
 
 ## Configuration contract (env vars = config keys)
 
-Clock: `AERIAL_CLOCK_ENABLED`, **`AERIAL_CLOCK_OFFSET_MINUTES`** (default 10, negative OK),
+Clock: `AERIAL_CLOCK_ENABLED`, **`AERIAL_CLOCK_OFFSET_MINUTES`** (default 0, negative OK),
 `AERIAL_CLOCK_FORMAT` (24h|12h|custom), `AERIAL_CLOCK_SECONDS`, `AERIAL_CLOCK_HIDE_AMPM`,
 `AERIAL_CLOCK_CUSTOM_FORMAT` (strftime), `AERIAL_CLOCK_CORNER`
-(topLeft|topRight|bottomLeft|bottomRight|center), `AERIAL_CLOCK_FONT_SIZE`, `AERIAL_CLOCK_FONT`,
+(topLeft|topCenter|topRight|bottomLeft|bottomCenter|bottomRight|left|right|screenCenter|random),
+`AERIAL_CLOCK_FONT_SIZE`, `AERIAL_CLOCK_FONT`,
 `AERIAL_CLOCK_MARGIN`, `AERIAL_CLOCK_COLOR` (RRGGBB).
 Video: `AERIAL_QUALITY` (1080-sdr default; 1080-hdr|4k-sdr|4k-hdr|1080-h264), `AERIAL_MANIFEST_URL`,
 `AERIAL_CACHE_DIR`, `AERIAL_PLAYLIST`, `AERIAL_VIDEO_LIMIT`, `AERIAL_SHUFFLE`.

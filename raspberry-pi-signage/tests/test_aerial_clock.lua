@@ -13,8 +13,8 @@ local function epoch(year, month, day, hour, min, sec)
   return os.time({ year = year, month = month, day = day, hour = hour, min = min, sec = sec })
 end
 
-assert_equal(clock.offset_minutes_from_env(nil), 10, "nil offset")
-assert_equal(clock.offset_minutes_from_env("bad"), 10, "invalid offset")
+assert_equal(clock.offset_minutes_from_env(nil), 0, "nil offset")
+assert_equal(clock.offset_minutes_from_env("bad"), 0, "invalid offset")
 assert_equal(clock.offset_minutes_from_env("-540"), -540, "negative offset")
 assert_equal(clock.offset_minutes_from_env("90"), 90, "positive offset")
 
@@ -40,10 +40,16 @@ assert_equal(
 )
 
 assert_equal(clock.alignment_for("topLeft"), 7, "topLeft")
+assert_equal(clock.alignment_for("topCenter"), 8, "topCenter")
+assert_equal(clock.alignment_for("topmiddle"), 8, "topmiddle alias")
 assert_equal(clock.alignment_for("topRight"), 9, "topRight")
 assert_equal(clock.alignment_for("bottomLeft"), 1, "bottomLeft")
+assert_equal(clock.alignment_for("bottomCenter"), 2, "bottomCenter")
 assert_equal(clock.alignment_for("bottomRight"), 3, "bottomRight")
-assert_equal(clock.alignment_for("center"), 5, "center")
+assert_equal(clock.alignment_for("center"), 5, "center legacy")
+assert_equal(clock.alignment_for("middle"), 5, "middle alias")
+assert_equal(clock.alignment_for("left"), 4, "left")
+assert_equal(clock.alignment_for("right"), 6, "right")
 assert_equal(clock.alignment_for("unknown"), 3, "default alignment")
 assert_equal(clock.rgb_to_ass_bgr("FF0000"), "&H0000FF&", "red bgr")
 
@@ -58,7 +64,17 @@ assert_equal(
   "Saturday, July 18",
   "en textual date"
 )
-assert_equal(clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "numeric" }), "2026-07-18", "numeric date")
+assert_equal(clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "compact" }), "07/18", "compact date")
+assert_equal(
+  clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "numeric", with_year = true }),
+  "2026/07/18",
+  "numeric date with year"
+)
+assert_equal(
+  clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "custom", custom_format = "%Y.%m.%d" }),
+  "2026.07.18",
+  "custom date"
+)
 assert_equal(clock.unescape("a\\nb\\\\c"), "a\nb\\c", "unescape newline and backslash")
 
 print("OK")

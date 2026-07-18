@@ -10,12 +10,14 @@ import html
 import http.cookies
 import json
 import os
+import plistlib
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -47,6 +49,7 @@ KNOWN_KEYS = {
     "AERIAL_DATE_COLOR",
     "AERIAL_DATE_MARGIN",
     "AERIAL_DATE_FORMAT",
+    "AERIAL_DATE_CUSTOM_FORMAT",
     "AERIAL_DATE_WITH_YEAR",
     "AERIAL_DATE_LANG",
     "AERIAL_LOC_ENABLED",
@@ -55,6 +58,7 @@ KNOWN_KEYS = {
     "AERIAL_LOC_FONT",
     "AERIAL_LOC_COLOR",
     "AERIAL_LOC_MARGIN",
+    "AERIAL_LOC_MODE",
     "AERIAL_LABELS_FILE",
     "AERIAL_MSG_ENABLED",
     "AERIAL_MSG_CORNER",
@@ -78,6 +82,86 @@ KNOWN_KEYS = {
     "AERIAL_MPV_HWDEC",
     "AERIAL_MPV_EXTRA",
 }
+
+WEB_DEFAULTS = {
+    "AERIAL_CLOCK_ENABLED": "1",
+    "AERIAL_CLOCK_OFFSET_MINUTES": "0",
+    "AERIAL_CLOCK_FORMAT": "24h",
+    "AERIAL_CLOCK_SECONDS": "0",
+    "AERIAL_CLOCK_HIDE_AMPM": "0",
+    "AERIAL_CLOCK_CUSTOM_FORMAT": "%H:%M",
+    "AERIAL_CLOCK_CORNER": "bottomLeft",
+    "AERIAL_CLOCK_FONT_SIZE": "50",
+    "AERIAL_CLOCK_FONT": "",
+    "AERIAL_CLOCK_MARGIN": "60",
+    "AERIAL_CLOCK_COLOR": "FFFFFF",
+    "AERIAL_DATE_ENABLED": "0",
+    "AERIAL_DATE_CORNER": "bottomLeft",
+    "AERIAL_DATE_FONT_SIZE": "25",
+    "AERIAL_DATE_FONT": "",
+    "AERIAL_DATE_COLOR": "FFFFFF",
+    "AERIAL_DATE_MARGIN": "60",
+    "AERIAL_DATE_FORMAT": "textual",
+    "AERIAL_DATE_CUSTOM_FORMAT": "%Y-%m-%d",
+    "AERIAL_DATE_WITH_YEAR": "0",
+    "AERIAL_DATE_LANG": "ja",
+    "AERIAL_LOC_ENABLED": "0",
+    "AERIAL_LOC_CORNER": "topRight",
+    "AERIAL_LOC_FONT_SIZE": "28",
+    "AERIAL_LOC_FONT": "",
+    "AERIAL_LOC_COLOR": "FFFFFF",
+    "AERIAL_LOC_MARGIN": "60",
+    "AERIAL_LOC_MODE": "accessibilityLabel",
+    "AERIAL_LABELS_FILE": "/var/lib/aerial-signage/labels.tsv",
+    "AERIAL_MSG_ENABLED": "0",
+    "AERIAL_MSG_CORNER": "bottomRight",
+    "AERIAL_MSG_FONT_SIZE": "24",
+    "AERIAL_MSG_FONT": "",
+    "AERIAL_MSG_COLOR": "FFFFFF",
+    "AERIAL_MSG_MARGIN": "60",
+    "AERIAL_MSG_TEXT": "",
+    "AERIAL_QUALITY": "1080-h264",
+    "AERIAL_SOURCE": "tvos16",
+    "AERIAL_MANIFEST_URL": "https://raw.githubusercontent.com/kopiro/xscreensaver-apple-aerial/main/entries.json",
+    "AERIAL_CACHE_DIR": "/var/lib/aerial-signage/videos",
+    "AERIAL_PLAYLIST": "/var/lib/aerial-signage/playlist.txt",
+    "AERIAL_VIDEO_LIMIT": "0",
+    "AERIAL_STRICT_QUALITY": "0",
+    "AERIAL_SCENES": "",
+    "AERIAL_HIDDEN_VIDEOS": "",
+    "AERIAL_SHUFFLE": "1",
+    "AERIAL_MPV_VO": "gpu",
+    "AERIAL_MPV_GPU_CONTEXT": "drm",
+    "AERIAL_MPV_HWDEC": "drm-copy",
+    "AERIAL_MPV_EXTRA": "",
+}
+
+# See docs/display-settings-mapping.md for the authoritative spec/Windows/env table.
+SPEC_CORNER_TO_ENV = {
+    0: "topLeft",
+    1: "topCenter",
+    2: "topRight",
+    3: "bottomLeft",
+    4: "bottomCenter",
+    5: "bottomRight",
+    6: "screenCenter",
+    7: "random",
+    8: "absTopRight",
+}
+WINDOWS_CORNER_TO_ENV = {
+    "topleft": "topLeft",
+    "topmiddle": "topCenter",
+    "topright": "topRight",
+    "bottomleft": "bottomLeft",
+    "bottommiddle": "bottomCenter",
+    "bottomright": "bottomRight",
+    "middle": "screenCenter",
+    "left": "left",
+    "right": "right",
+    "random": "random",
+}
+SPEC_CLOCK_FORMAT_TO_ENV = {0: "24h", 1: "24h", 2: "12h", 3: "custom"}
+SPEC_DATE_FORMAT_TO_ENV = {0: "textual", 1: "compact", 2: "custom"}
 
 
 def script_root() -> Path:
@@ -112,6 +196,12 @@ def normalize_config_payload(config: Dict[str, Any]) -> Dict[str, str]:
         else:
             normalized[key] = str(value)
     return normalized
+
+
+def effective_config(cfg: Dict[str, str]) -> Dict[str, str]:
+    effective = dict(WEB_DEFAULTS)
+    effective.update(cfg)
+    return effective
 
 
 def quote_config_value(value: str) -> str:
@@ -230,27 +320,72 @@ def start_cmd(args: List[str]) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def playlist_count(cfg: Dict[str, str]) -> int:
+    playlist = Path(cfg.get("AERIAL_PLAYLIST", "/var/lib/aerial-signage/playlist.txt"))
+    if not playlist.exists():
+        return 0
+    return len([line for line in playlist.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()])
+
+
+def rebuild_playlist() -> Dict[str, Any]:
+    fetch_path = script_root() / "bin" / "aerial-fetch"
+    return run_cmd(["python3", str(fetch_path), "--config", str(config_path())], timeout=150)
+
+
+def restart_player() -> Dict[str, Any]:
+    return run_cmd([SYSTEMCTL, "restart", "aerial-signage.service"], timeout=20)
+
+
+def save_config_and_restart(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    write_config_file(config_path(), cfg)
+    fetch = rebuild_playlist()
+    current_cfg = parse_key_value_config(config_path())
+    count = playlist_count(current_cfg)
+    systemctl = restart_player()
+    return {"ok": systemctl["ok"], "systemctl": systemctl, "fetch": fetch, "playlist_count": count}
+
+
+def _recv_mpv_line(client: socket.socket, deadline: float) -> Dict[str, Any]:
+    chunks: List[bytes] = []
+    while time.monotonic() < deadline:
+        client.settimeout(max(0.01, deadline - time.monotonic()))
+        chunk = client.recv(4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        if b"\n" in chunk:
+            break
+    line = b"".join(chunks).split(b"\n", 1)[0]
+    return json.loads(line.decode("utf-8", "replace"))
+
+
 def query_mpv_stats(sock_path: str = "/tmp/mpvsock") -> Dict[str, Any]:
     if not os.path.exists(sock_path):
-        return {"available": False}
-    stats: Dict[str, Any] = {"available": True}
+        return {}
+    stats: Dict[str, Any] = {}
     commands = {
-        "est-display-fps": ["get_property", "estimated-display-fps"],
+        "est_display_fps": ["get_property", "estimated-display-fps"],
         "drops": ["get_property", "frame-drop-count"],
     }
+    deadline = time.monotonic() + 1.0
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(0.5)
+            client.settimeout(1.0)
             client.connect(sock_path)
             for key, command in commands.items():
+                if time.monotonic() >= deadline:
+                    return {}
                 client.sendall((json.dumps({"command": command}) + "\n").encode("utf-8"))
-                line = client.recv(4096).decode("utf-8", "replace").strip()
-                payload = json.loads(line)
-                stats[key] = payload.get("data")
-                if key == "est-display-fps":
-                    stats["est_display_fps"] = payload.get("data")
-    except Exception as exc:  # noqa: BLE001
-        stats["error"] = str(exc)
+                payload = _recv_mpv_line(client, deadline)
+                if payload.get("error") != "success":
+                    return {}
+                value = payload.get("data")
+                if key == "est_display_fps":
+                    stats[key] = round(float(value), 1)
+                else:
+                    stats[key] = int(value)
+    except Exception:  # noqa: BLE001 - status should never fail because mpv IPC is unavailable.
+        return {}
     return stats
 
 
@@ -262,27 +397,49 @@ def system_status(cfg: Dict[str, str]) -> Dict[str, Any]:
         disk_info = {"total": disk.total, "used": disk.used, "free": disk.free}
     except OSError:
         disk_info = {"total": 0, "used": 0, "free": 0}
-    playlist = Path(cfg.get("AERIAL_PLAYLIST", "/var/lib/aerial-signage/playlist.txt"))
-    video_count = 0
-    if playlist.exists():
-        video_count = len([line for line in playlist.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()])
-    return {
+    status = {
         "service_active": service["ok"] and service["stdout"].strip() == "active",
         "service_raw": service["stdout"].strip() or service["stderr"].strip(),
-        "mpv": query_mpv_stats(),
         "disk": disk_info,
-        "playlist_count": video_count,
+        "playlist_count": playlist_count(cfg),
     }
+    mpv_stats = query_mpv_stats()
+    if mpv_stats:
+        status["mpv"] = mpv_stats
+    return status
 
 
 def api_state() -> Dict[str, Any]:
-    cfg = parse_key_value_config(config_path())
+    cfg = effective_config(parse_key_value_config(config_path()))
     return {"config": cfg, "sources": load_sources(), "status": system_status(cfg)}
 
 
 def api_videos() -> Dict[str, Any]:
     fetch_path = script_root() / "bin" / "aerial-fetch"
-    result = run_cmd(["python3", str(fetch_path), "--config", str(config_path()), "--list-videos"], timeout=60)
+    cfg = effective_config(parse_key_value_config(config_path()))
+    args = [
+        "python3",
+        str(fetch_path),
+        "--config",
+        str(config_path()),
+        "--source",
+        cfg["AERIAL_SOURCE"],
+        "--quality",
+        cfg["AERIAL_QUALITY"],
+        "--manifest-url",
+        cfg["AERIAL_MANIFEST_URL"],
+        "--cache-dir",
+        cfg["AERIAL_CACHE_DIR"],
+        "--limit",
+        cfg["AERIAL_VIDEO_LIMIT"],
+        "--scenes",
+        cfg["AERIAL_SCENES"],
+        "--hidden-videos",
+        cfg["AERIAL_HIDDEN_VIDEOS"],
+        "--strict-quality" if bool01(cfg["AERIAL_STRICT_QUALITY"]) == "1" else "--no-strict-quality",
+        "--list-videos",
+    ]
+    result = run_cmd(args, timeout=60)
     videos = []
     if result["ok"]:
         reader = csv.reader(result["stdout"].splitlines(), delimiter="\t")
@@ -300,56 +457,265 @@ def api_videos() -> Dict[str, Any]:
     return {"ok": result["ok"], "videos": videos, "error": result["stderr"]}
 
 
+def _json_dict(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, str):
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _json_list(raw: Any) -> Optional[List[Any]]:
+    if not isinstance(raw, str):
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, list) else None
+
+
+def _bool_string(raw: Any) -> Optional[str]:
+    if isinstance(raw, bool):
+        return "1" if raw else "0"
+    return None
+
+
+def _number_string(raw: Any) -> Optional[str]:
+    if isinstance(raw, (int, float)):
+        return str(int(raw))
+    return None
+
+
+def normalize_corner_value(raw: Any) -> Optional[str]:
+    if isinstance(raw, (int, float)):
+        return SPEC_CORNER_TO_ENV.get(int(raw))
+    if isinstance(raw, str):
+        return SPEC_CORNER_TO_ENV.get(int(raw)) if raw.isdigit() else WINDOWS_CORNER_TO_ENV.get(raw, raw)
+    return None
+
+
+def translate_datetime_format(raw: str) -> str:
+    if "%" in raw:
+        return raw
+    replacements = {
+        "yyyy": "%Y",
+        "YYYY": "%Y",
+        "yy": "%y",
+        "YY": "%y",
+        "MMMM": "%B",
+        "MMM": "%b",
+        "MM": "%m",
+        "M": "%m",
+        "dd": "%d",
+        "DD": "%d",
+        "d": "%d",
+        "D": "%d",
+        "EEEE": "%A",
+        "EEE": "%a",
+        "HH": "%H",
+        "H": "%H",
+        "hh": "%I",
+        "h": "%I",
+        "mm": "%M",
+        "m": "%M",
+        "ss": "%S",
+        "s": "%S",
+        "a": "%p",
+        "A": "%p",
+    }
+    tokens = sorted(replacements, key=len, reverse=True)
+    out: List[str] = []
+    i = 0
+    while i < len(raw):
+        for token in tokens:
+            if raw.startswith(token, i):
+                out.append(replacements[token])
+                i += len(token)
+                break
+        else:
+            out.append(raw[i])
+            i += 1
+    return "".join(out)
+
+
+def apple_reference_seconds_to_unix(raw: Any) -> Optional[float]:
+    if not isinstance(raw, (int, float)):
+        return None
+    return 978307200 + float(raw)
+
+
+def import_display_settings_plist(plist_text: str) -> Dict[str, Any]:
+    try:
+        payload = plistlib.loads(plist_text.encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - API reports parse failures as JSON.
+        raise ValueError(f"invalid plist: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("plist root must be a dictionary")
+
+    updates: Dict[str, Any] = {}
+    imported_keys: List[str] = []
+    skipped_keys: List[str] = []
+
+    def add(key: str, value: Any, source: str) -> None:
+        if value is None:
+            skipped_keys.append(source)
+            return
+        candidate = normalize_config_payload({key: value})
+        if not candidate:
+            skipped_keys.append(source)
+            return
+        try:
+            format_config_line(key, candidate[key])
+        except ValueError:
+            skipped_keys.append(source)
+            return
+        updates[key] = candidate[key]
+        imported_keys.append(source)
+
+    if isinstance(payload.get("customTimeFormat"), str):
+        add("AERIAL_CLOCK_CUSTOM_FORMAT", translate_datetime_format(payload["customTimeFormat"]), "customTimeFormat")
+    if isinstance(payload.get("customDateFormat"), str):
+        add("AERIAL_DATE_CUSTOM_FORMAT", translate_datetime_format(payload["customDateFormat"]), "customDateFormat")
+
+    layer_keys = _json_list(payload.get("layers"))
+    if layer_keys is not None:
+        imported_keys.append("layers")
+
+    layer_map = {
+        "LayerClock": "AERIAL_CLOCK",
+        "LayerDate": "AERIAL_DATE",
+        "LayerMessage": "AERIAL_MSG",
+        "LayerLocation": "AERIAL_LOC",
+    }
+    for plist_key, prefix in layer_map.items():
+        layer = _json_dict(payload.get(plist_key))
+        if layer is None:
+            if plist_key in payload:
+                skipped_keys.append(plist_key)
+            continue
+        enabled = _bool_string(layer.get("isEnabled"))
+        if enabled is not None:
+            add(f"{prefix}_ENABLED", enabled, f"{plist_key}.isEnabled")
+        corner = normalize_corner_value(layer.get("corner"))
+        if corner is not None:
+            add(f"{prefix}_CORNER", corner, f"{plist_key}.corner")
+        font_size = _number_string(layer.get("fontSize"))
+        if font_size is not None:
+            add(f"{prefix}_FONT_SIZE", font_size, f"{plist_key}.fontSize")
+        if isinstance(layer.get("fontName"), str):
+            add(f"{prefix}_FONT", layer["fontName"], f"{plist_key}.fontName")
+
+        if plist_key == "LayerClock":
+            if "showSeconds" in layer:
+                add("AERIAL_CLOCK_SECONDS", _bool_string(layer.get("showSeconds")), "LayerClock.showSeconds")
+            if "hideAmPm" in layer:
+                add("AERIAL_CLOCK_HIDE_AMPM", _bool_string(layer.get("hideAmPm")), "LayerClock.hideAmPm")
+            fmt = layer.get("clockFormat")
+            if isinstance(fmt, (int, float)) and int(fmt) in SPEC_CLOCK_FORMAT_TO_ENV:
+                add("AERIAL_CLOCK_FORMAT", SPEC_CLOCK_FORMAT_TO_ENV[int(fmt)], "LayerClock.clockFormat")
+        elif plist_key == "LayerDate":
+            if "withYear" in layer:
+                add("AERIAL_DATE_WITH_YEAR", _bool_string(layer.get("withYear")), "LayerDate.withYear")
+            fmt = layer.get("format")
+            if isinstance(fmt, (int, float)) and int(fmt) in SPEC_DATE_FORMAT_TO_ENV:
+                add("AERIAL_DATE_FORMAT", SPEC_DATE_FORMAT_TO_ENV[int(fmt)], "LayerDate.format")
+        elif plist_key == "LayerMessage":
+            message_type = layer.get("messageType", 0)
+            if message_type in (0, 0.0) and isinstance(layer.get("message"), str):
+                add("AERIAL_MSG_TEXT", layer["message"], "LayerMessage.message")
+        elif plist_key == "LayerLocation":
+            add("AERIAL_LOC_MODE", "accessibilityLabel", "LayerLocation.mode")
+
+    for key in ("LayerCountdown", "LayerTimer"):
+        layer = _json_dict(payload.get(key))
+        if layer:
+            for date_key in ("targetDate", "triggerDate", "duration"):
+                if date_key in layer and apple_reference_seconds_to_unix(layer[date_key]) is None:
+                    skipped_keys.append(f"{key}.{date_key}")
+
+    return {"ok": True, "config": updates, "imported_keys": imported_keys, "skipped_keys": skipped_keys}
+
+
 def html_page() -> str:
     return r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aerial Signage</title>
+<title>Aerial Config</title>
 <style>
 :root{color-scheme:dark;--bg:#171719;--panel:#242428;--panel2:#2d2d32;--text:#f4f4f5;--muted:#a6a6ad;--border:#3b3b42;--accent:#62a8ff;--good:#6cd17a;--warn:#ffcc66;--danger:#ff6b6b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
-header{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:18px 28px;background:rgba(23,23,25,.94);border-bottom:1px solid var(--border);backdrop-filter:blur(14px)}
+header{position:sticky;top:0;z-index:2;background:rgba(23,23,25,.94);border-bottom:1px solid var(--border);backdrop-filter:blur(14px)}
+.top{display:flex;align-items:center;justify-content:space-between;padding:16px 28px}.tabs{display:flex;background:#2a2a2f;border-top:1px solid var(--border)}.tabbtn{border:0;border-right:1px solid var(--border);border-radius:0;background:transparent;padding:11px 18px}.tabbtn.active{background:var(--accent);color:#06131f}
 h1{font-size:20px;margin:0;font-weight:650}main{display:grid;grid-template-columns:1fr;gap:18px;padding:22px;max-width:1280px;margin:0 auto}
-section{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px}h2{font-size:17px;margin:0 0 14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+section,.card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px}h2{font-size:17px;margin:0 0 14px}h3{font-size:16px;margin:0 0 14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.layout{display:grid;grid-template-columns:210px 1fr;gap:16px}.side{display:grid;align-content:start;gap:6px}.side button{text-align:left}.side button.active{background:#3c5268;border-color:#55718d}
+.tab{display:none}.tab.active{display:block}.settingsCard,.textSettingsCard{display:none}.settingsCard.active,.textSettingsCard.active{display:block}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.stack{display:grid;gap:10px}label{color:var(--muted);display:grid;gap:6px}input,select,textarea,button{font:13px/1.3 inherit}
 input,select,textarea{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:9px}
 input[type=checkbox],input[type=radio]{width:auto}textarea{min-height:92px;resize:vertical}button{border:1px solid var(--border);border-radius:6px;background:#34343a;color:var(--text);padding:9px 12px;cursor:pointer}
 button.primary{background:var(--accent);border-color:var(--accent);color:#06131f}.danger{background:#3b2428;border-color:#63343c;color:#ffd5dc}
+button:disabled{opacity:.62;cursor:wait}
 .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;color:var(--muted);font-size:12px}.yes{color:var(--good)}.no{color:var(--warn)}
 .video-list{display:grid;gap:7px;max-height:420px;overflow:auto}.video{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px;background:var(--panel2);border:1px solid var(--border);border-radius:6px}
 .title{font-weight:600}.meta{color:var(--muted);font-size:12px}.status{color:var(--muted)}.panel-title{font-weight:650;margin-bottom:8px}
+#toast{position:fixed;left:50%;bottom:22px;z-index:20;transform:translate(-50%,16px);opacity:0;pointer-events:none;background:#111;color:#fff;border:1px solid #333;border-radius:999px;padding:10px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:opacity .18s ease,transform .18s ease;max-width:calc(100vw - 32px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1;transform:translate(-50%,0)}#toast.error{background:#4a151a;border-color:#8b2e38;color:#ffe7ea}
 @media (max-width:720px){header{padding:14px 16px}main{padding:14px}.video{grid-template-columns:1fr}.row{align-items:flex-start}}
 </style>
 </head>
 <body>
-<header><h1>Aerial Signage</h1><div class="status" id="statusText">Loading</div></header>
+<header><div class="top"><h1>Aerial Config</h1><div class="status" id="statusText">Loading</div></div><nav class="tabs"><button class="tabbtn active" data-tab="settingsTab">Settings</button><button class="tabbtn" data-tab="videoTab">Videos</button><button class="tabbtn" data-tab="textTab">Text</button></nav></header>
 <main>
-<section><h2>Now Playing</h2><div class="row" id="sceneChecks"></div><div class="row"><button id="allScenes">Select all</button><button id="noScenes">Select none</button></div><div class="video-list" id="videoList"></div></section>
-<section><h2>Sources</h2><div class="grid"><div class="stack" id="sourceRadios"></div><label>Quality<select data-key="AERIAL_QUALITY"><option value="1080-h264">1080-h264</option><option value="1080-sdr">1080-sdr</option><option value="1080-hdr">1080-hdr</option><option value="4k-sdr">4k-sdr</option><option value="4k-hdr">4k-hdr</option></select></label><label>Video limit<input data-key="AERIAL_VIDEO_LIMIT" type="number" min="0"></label><label class="row"><input data-key="AERIAL_STRICT_QUALITY" type="checkbox"> Strict quality</label><label class="row"><input data-key="AERIAL_SHUFFLE" type="checkbox"> Shuffle</label></div></section>
-<section><h2>Overlays</h2><div class="grid" id="overlays"></div></section>
-<section><h2>System</h2><div class="grid"><div class="stack" id="systemStatus"></div><div class="row"><button class="primary" id="saveApply">Save & Apply</button><button id="fetchNow">Fetch now</button><button id="restartPlayer">Restart player</button><button class="danger" id="reboot">Reboot</button></div></div></section>
+<div id="settingsTab" class="tab active"><div class="layout"><aside class="side" id="settingsSide"><button data-card="generalSettings" class="active">Settings</button><button data-card="playbackSettings">Playback</button><button data-card="timeSettings">Time & Location</button><button data-card="multiscreenSettings">Multiscreen</button><button data-card="styleSettings">Style</button><button data-card="cacheSettings">Video Cache</button><button data-card="customVideoSettings">Custom Videos</button><button data-card="advancedSettings">Advanced</button><button data-card="aboutSettings">About</button></aside><div class="stack">
+<section id="generalSettings" class="settingsCard active"><h2>General Settings</h2><div class="grid"><label>Start Aerial After<input type="number" value="0" disabled></label><label class="row"><input type="checkbox" disabled> Automatically blank screen after</label><label class="row"><input type="checkbox" disabled> Run Aerial on battery power</label></div></section>
+<section id="playbackSettings" class="settingsCard"><h2>Playback Settings</h2><div class="grid"><div class="stack"><div class="panel-title">Source</div><div class="stack" id="sourceRadios"></div></div><label>Video Resolution<select data-key="AERIAL_QUALITY"><option value="1080-h264">H.264 1080p</option><option value="1080-sdr">H.265 1080p</option><option value="4k-sdr">H.265 4K</option><option value="1080-hdr">H.265 1080p HDR</option><option value="4k-hdr">H.265 4K HDR</option></select></label><label>Video limit<input data-key="AERIAL_VIDEO_LIMIT" type="number" min="0"></label><label class="row"><input data-key="AERIAL_STRICT_QUALITY" type="checkbox"> Strict quality</label><label class="row"><input data-key="AERIAL_SHUFFLE" type="checkbox"> Shuffle</label></div></section>
+<section id="timeSettings" class="settingsCard"><h2>Time & Location Settings</h2><div class="grid"><label class="row"><input type="checkbox" disabled> Prioritize videos for current time of day</label><label>Sunrise<input type="time" value="06:00" disabled></label><label>Sunset<input type="time" value="18:00" disabled></label><label>Displayed time offset:<input data-key="AERIAL_CLOCK_OFFSET_MINUTES" type="number" step="1"></label><label class="row"><input type="checkbox" disabled> Use location for sunrise & sunset times</label><label>Location<input value="" disabled></label></div></section>
+<section id="multiscreenSettings" class="settingsCard"><h2>Multiscreen Settings</h2><div class="grid"><label class="row"><input type="checkbox" disabled> Play the same video on each screen</label><label class="row"><input type="checkbox" disabled> Only play videos on the primary screen</label><label class="row"><input type="checkbox" disabled> Alternate Render Method</label></div></section>
+<section id="styleSettings" class="settingsCard"><h2>Style</h2><div class="grid"><label>Playback Speed<input type="range" min=".75" max="4" value="1" step=".05" disabled></label></div></section>
+<section id="cacheSettings" class="settingsCard"><h2>Video Cache Settings</h2><div class="grid"><label class="row"><input type="checkbox" disabled> Automatically download checked videos to the cache</label><label class="row"><input type="checkbox" disabled> Include videos in saved profiles</label><label class="row"><input type="checkbox" disabled> Automatically remove unchecked videos</label><div class="stack" id="systemStatus"></div></div></section>
+<section id="customVideoSettings" class="settingsCard"><h2>Custom Videos</h2><div class="row"><button disabled>Add Folder</button></div></section>
+<section id="advancedSettings" class="settingsCard"><h2>Advanced Settings</h2><div class="row"><button class="primary" id="saveApply">Save & Apply</button><button id="fetchNow">Fetch now</button><button id="restartPlayer">Restart player</button><button id="importDisplay">Import Display Settings...</button><input id="importFile" type="file" accept=".plist,.xml,text/xml,application/xml" hidden><button class="danger" id="reboot">Reboot</button></div></section>
+<section id="aboutSettings" class="settingsCard"><h2>About Aerial</h2><div>Apple TV screen saver for Raspberry Pi signage</div></section>
+</div></div></div>
+<div id="videoTab" class="tab"><section><h2>Video Settings</h2><div class="row" id="sceneChecks"></div><div class="row"><button id="allScenes">Select all</button><button id="noScenes">Select none</button></div><div class="video-list" id="videoList"></div></section></div>
+<div id="textTab" class="tab"><div class="layout"><aside class="side" id="textSide"><button data-card="positionTextSettings" class="active">Position</button><button data-card="textOptionsTextSettings">Text Options</button></aside><div class="stack"><section id="positionTextSettings" class="textSettingsCard active"><h2>Position</h2><div class="stack" id="positionRows"></div></section><section id="textOptionsTextSettings" class="textSettingsCard"><h2>Text Options</h2><div class="grid" id="textOptions"></div></section></div></div></div>
 </main>
+<div id="toast"></div>
 <script>
-const scenes=["countryside","nature","city","beach","sea","space","other"];const corners=["topLeft","topRight","bottomLeft","bottomRight","center"];let state={config:{},sources:[],videos:[]};
+const scenes=["countryside","nature","city","beach","sea","space","other"];
+const corners=[["topLeft","Top Left"],["topCenter","Top Center"],["topRight","Top Right"],["bottomLeft","Bottom Left"],["bottomCenter","Bottom Center"],["bottomRight","Bottom Right"],["left","Left"],["right","Right"],["screenCenter","Middle"],["random","Random"]];
+const layers=[["Message","AERIAL_MSG","text"],["Clock","AERIAL_CLOCK","time"],["Date","AERIAL_DATE","time"],["Location","AERIAL_LOC","information"]];
+let state={config:{},sources:[],videos:[]};
 const $=s=>document.querySelector(s);const $$=s=>Array.from(document.querySelectorAll(s));const cfg=k=>state.config[k]||"";
-async function api(path,body){const opt=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{};const r=await fetch(path,opt);if(!r.ok)throw new Error(await r.text());return r.json()}
+let toastTimer=0;function toast(msg,error=false){clearTimeout(toastTimer);const el=$("#toast");el.textContent=msg;el.className=error?"show error":"show";toastTimer=setTimeout(()=>{el.className=""},4000)}
+async function busy(btn,fn){const label=btn.textContent;btn.disabled=true;btn.textContent="...";try{await fn()}catch(e){toast(e.message||String(e),true)}finally{btn.disabled=false;btn.textContent=label}}
+async function api(path,body){const opt=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{};const r=await fetch(path,opt);let data=null;try{data=await r.json()}catch(e){data={error:await r.text()}}if(!r.ok)throw new Error(data.error||JSON.stringify(data));return data}
 function setValue(k,v){const el=document.querySelector(`[data-key="${k}"]`);if(!el)return;if(el.type==="checkbox")el.checked=v==="1";else el.value=v}
 function readValue(k){const el=document.querySelector(`[data-key="${k}"]`);if(!el)return"";return el.type==="checkbox"?(el.checked?"1":"0"):el.value}
-function overlayPanel(name,prefix,extra){return `<div class="stack"><div class="panel-title">${name}</div><label class="row"><input data-key="${prefix}_ENABLED" type="checkbox"> Enable</label><label>Corner<select data-key="${prefix}_CORNER">${corners.map(c=>`<option>${c}</option>`).join("")}</select></label><label>Font size<input data-key="${prefix}_FONT_SIZE" type="number" min="8" max="160"></label><label>Color<input data-key="${prefix}_COLOR" type="color"></label>${extra}</div>`}
-function renderShell(){sourceRadios.innerHTML=state.sources.map(s=>`<label class="row"><input type="radio" name="source" value="${s.id}"> ${s.name}</label>`).join("");overlays.innerHTML=[
-overlayPanel("Message","AERIAL_MSG",'<label>Text<textarea data-key="AERIAL_MSG_TEXT"></textarea></label>'),
-overlayPanel("Clock","AERIAL_CLOCK",'<label>Format<select data-key="AERIAL_CLOCK_FORMAT"><option>24h</option><option>12h</option><option>custom</option></select></label><label class="row"><input data-key="AERIAL_CLOCK_SECONDS" type="checkbox"> Seconds</label><label>Offset minutes<input data-key="AERIAL_CLOCK_OFFSET_MINUTES" type="number"></label><label>Custom format<input data-key="AERIAL_CLOCK_CUSTOM_FORMAT"></label>'),
-overlayPanel("Date","AERIAL_DATE",'<label>Format<select data-key="AERIAL_DATE_FORMAT"><option>textual</option><option>numeric</option></select></label><label class="row"><input data-key="AERIAL_DATE_WITH_YEAR" type="checkbox"> Year</label><label>Language<select data-key="AERIAL_DATE_LANG"><option>ja</option><option>en</option></select></label>'),
-overlayPanel("Location","AERIAL_LOC","")].join("")}
+function typeValue(prefix){if(prefix==="AERIAL_MSG")return cfg("AERIAL_MSG_ENABLED")==="1"?"text":"none";if(prefix==="AERIAL_CLOCK")return cfg("AERIAL_CLOCK_ENABLED")==="1"?"time":"none";if(prefix==="AERIAL_DATE")return cfg("AERIAL_DATE_ENABLED")==="1"?"time":"none";if(prefix==="AERIAL_LOC")return cfg("AERIAL_LOC_ENABLED")==="1"?"information":"none";return"none"}
+function updateType(prefix,select){const enabled=select.value==="none"?"0":"1";const el=document.querySelector(`[data-key="${prefix}_ENABLED"]`);if(el)el.checked=enabled==="1"}
+function renderShell(){$("#sourceRadios").innerHTML=state.sources.map(s=>`<label class="row"><input type="radio" name="source" value="${s.id}"> ${s.name}${s.id==="tvos16"?" (114-video default)":""}</label>`).join("");
+$("#positionRows").innerHTML=layers.map((l,i)=>`<div class="card"><div class="grid"><div><div class="panel-title">Line ${i+1}</div><label>Type<select onchange="updateType('${l[1]}',this)"><option value="none">None</option><option value="text" ${l[2]==="text"?"selected":""}>Text</option><option value="time" ${l[2]==="time"?"selected":""}>Time/Date</option><option value="information" ${l[2]==="information"?"selected":""}>Information</option></select></label></div><label>Position<select data-key="${l[1]}_CORNER">${corners.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join("")}</select></label><label class="row"><input data-key="${l[1]}_ENABLED" type="checkbox"> Enable</label>${l[1]==="AERIAL_MSG"?'<label>Text<textarea data-key="AERIAL_MSG_TEXT"></textarea></label>':""}${l[1]==="AERIAL_CLOCK"?'<label>Format<select data-key="AERIAL_CLOCK_FORMAT"><option>24h</option><option>12h</option><option>custom</option></select></label><label class="row"><input data-key="AERIAL_CLOCK_SECONDS" type="checkbox"> Seconds</label><label class="row"><input data-key="AERIAL_CLOCK_HIDE_AMPM" type="checkbox"> Hide AM/PM</label><label>Custom format<input data-key="AERIAL_CLOCK_CUSTOM_FORMAT"></label>':""}${l[1]==="AERIAL_DATE"?'<label>Format<select data-key="AERIAL_DATE_FORMAT"><option>textual</option><option>compact</option><option>numeric</option><option>custom</option></select></label><label class="row"><input data-key="AERIAL_DATE_WITH_YEAR" type="checkbox"> Year</label><label>Language<select data-key="AERIAL_DATE_LANG"><option>ja</option><option>en</option></select></label><label>Custom format<input data-key="AERIAL_DATE_CUSTOM_FORMAT"></label>':""}${l[1]==="AERIAL_LOC"?'<label>Type<select data-key="AERIAL_LOC_MODE"><option value="accessibilityLabel">Label</option><option value="name">Video Name</option><option value="poi">Location Information</option><option value="filename">Filename</option></select></label>':""}</div></div>`).join("");
+$("#textOptions").innerHTML=layers.map(l=>`<div class="stack"><div class="panel-title">${l[0]}</div><label>Font<input data-key="${l[1]}_FONT"></label><label>Font Size<input data-key="${l[1]}_FONT_SIZE" type="number" min="8" max="160"></label><label>Color<input data-key="${l[1]}_COLOR" type="color"></label></div>`).join("")}
 function renderVideos(){const selected=new Set((cfg("AERIAL_SCENES")||"").split(",").filter(Boolean));const hidden=new Set((cfg("AERIAL_HIDDEN_VIDEOS")||"").split(",").filter(Boolean));const counts=Object.fromEntries(scenes.map(s=>[s,0]));state.videos.forEach(v=>counts[v.scene]=(counts[v.scene]||0)+1);sceneChecks.innerHTML=scenes.map(s=>`<label class="row"><input type="checkbox" class="scene" value="${s}" ${!selected.size||selected.has(s)?"checked":""}> ${s} <span class="badge">${counts[s]||0}</span></label>`).join("");videoList.innerHTML=state.videos.map(v=>`<div class="video"><div><div class="title">${v.label}</div><div class="meta">${v.scene} · ${v.id}</div></div><div class="row"><span class="badge ${v.has_h264?"yes":"no"}">H264 ${v.has_h264?"yes":"no"}</span><span class="badge ${v.cached?"yes":"no"}">cached ${v.cached?"yes":"no"}</span><label class="row"><input type="checkbox" class="hide-video" value="${v.id}" ${hidden.has(v.id)?"checked":""}> Hide</label></div></div>`).join("")}
-function renderState(){renderShell();$$("[data-key]").forEach(el=>setValue(el.dataset.key,cfg(el.dataset.key)));$$('input[name="source"]').forEach(el=>el.checked=el.value===cfg("AERIAL_SOURCE"));if(cfg("AERIAL_MSG_TEXT"))setValue("AERIAL_MSG_TEXT",cfg("AERIAL_MSG_TEXT").replaceAll("\\n","\n"));["AERIAL_MSG_COLOR","AERIAL_CLOCK_COLOR","AERIAL_DATE_COLOR","AERIAL_LOC_COLOR"].forEach(k=>{const el=document.querySelector(`[data-key="${k}"]`);if(el&&cfg(k))el.value="#"+cfg(k).replace("#","")});renderVideos()}
+function renderState(){renderShell();$$("[data-key]").forEach(el=>setValue(el.dataset.key,cfg(el.dataset.key)));$$('input[name="source"]').forEach(el=>el.checked=el.value===cfg("AERIAL_SOURCE"));if(cfg("AERIAL_MSG_TEXT"))setValue("AERIAL_MSG_TEXT",cfg("AERIAL_MSG_TEXT").replaceAll("\\n","\n"));["AERIAL_MSG_COLOR","AERIAL_CLOCK_COLOR","AERIAL_DATE_COLOR","AERIAL_LOC_COLOR"].forEach(k=>{const el=document.querySelector(`[data-key="${k}"]`);if(el&&cfg(k))el.value="#"+cfg(k).replace("#","")});layers.forEach(l=>{const sel=[...document.querySelectorAll("#positionRows select")].find(s=>s.getAttribute("onchange")?.includes(l[1]));if(sel)sel.value=typeValue(l[1])});renderVideos()}
 function collectConfig(){const out={};$$("[data-key]").forEach(el=>{let v=readValue(el.dataset.key);if(el.type==="color")v=v.replace("#","");if(el.tagName==="TEXTAREA")v=v.replaceAll("\n","\\n");out[el.dataset.key]=v});const src=$$('input[name="source"]').find(el=>el.checked);if(src)out.AERIAL_SOURCE=src.value;const checked=$$(".scene").filter(el=>el.checked).map(el=>el.value);out.AERIAL_SCENES=checked.length===scenes.length?"":checked.join(",");out.AERIAL_HIDDEN_VIDEOS=$$(".hide-video").filter(el=>el.checked).map(el=>el.value).join(",");return out}
 function renderStatus(st){statusText.textContent=st.status?.service_active?"Player active":"Player inactive";systemStatus.innerHTML=`<div>Service: ${st.status?.service_raw||"unknown"}</div><div>Playlist videos: ${st.status?.playlist_count??0}</div><div>Disk free: ${Math.round((st.status?.disk?.free||0)/1024/1024/1024)} GB</div><div>mpv fps: ${st.status?.mpv?.est_display_fps??"n/a"}</div><div>drops: ${st.status?.mpv?.drops??"n/a"}</div>`}
 async function load(){state=await api("/api/state");const vids=await api("/api/videos");state.videos=vids.videos||[];renderState();renderStatus(state)}
+$$(".tabbtn").forEach(b=>b.onclick=()=>{$$(".tabbtn").forEach(x=>x.classList.remove("active"));b.classList.add("active");$$(".tab").forEach(x=>x.classList.remove("active"));$("#"+b.dataset.tab).classList.add("active")});
+function wireSide(sideSel,cardClass){$$(sideSel+" button").forEach(b=>b.onclick=()=>{$$(sideSel+" button").forEach(x=>x.classList.remove("active"));b.classList.add("active");$$("."+cardClass).forEach(x=>x.classList.remove("active"));$("#"+b.dataset.card).classList.add("active")})}
+wireSide("#settingsSide","settingsCard");wireSide("#textSide","textSettingsCard");
 allScenes.onclick=()=>{$$(".scene").forEach(el=>el.checked=true)};noScenes.onclick=()=>{$$(".scene").forEach(el=>el.checked=false)};
-saveApply.onclick=async()=>{await api("/api/save",{config:collectConfig()});await load()};fetchNow.onclick=()=>api("/api/fetch").then(load);restartPlayer.onclick=()=>api("/api/player/restart").then(load);reboot.onclick=()=>confirm("Reboot now?")&&api("/api/reboot");
+saveApply.onclick=()=>busy(saveApply,async()=>{const res=await api("/api/save",{config:collectConfig()});await load();if(!res.fetch?.ok)throw new Error(res.fetch?.stderr||"playlist fetch failed");toast(`適用しました / playlist ${res.playlist_count??0}本`)});
+fetchNow.onclick=()=>busy(fetchNow,async()=>{const res=await api("/api/fetch");if(!res.ok)throw new Error(res.error||"fetch start failed");await load();toast("取得を開始しました")});
+restartPlayer.onclick=()=>busy(restartPlayer,async()=>{const res=await api("/api/player/restart");if(!res.ok)throw new Error(res.stderr||"restart failed");await load();toast("再起動しました")});
+importDisplay.onclick=()=>importFile.click();importFile.onchange=()=>{const file=importFile.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>busy(importDisplay,async()=>{const res=await api("/api/import-display-settings",{plist:String(reader.result||"")});state.config={...state.config,...res.config};renderState();toast(`Imported ${res.imported_keys?.length||0} display settings`)});reader.readAsText(file)};
+reboot.onclick=()=>confirm("Reboot now?")&&busy(reboot,async()=>{const res=await api("/api/reboot");if(!res.ok)throw new Error(res.error||"reboot failed")});
 load().catch(e=>{statusText.textContent=e.message});
 </script>
 </body></html>"""
@@ -433,13 +799,17 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = payload.get("config")
                 if not isinstance(cfg, dict):
                     raise ValueError("config must be an object")
-                write_config_file(config_path(), cfg)
-                result = run_cmd([SYSTEMCTL, "restart", "aerial-signage.service"], timeout=20)
-                self.send_json({"ok": result["ok"], "systemctl": result})
+                self.send_json(save_config_and_restart(cfg))
             elif parsed.path == "/api/fetch":
                 self.send_json(start_cmd([SYSTEMCTL, "start", "aerial-fetch.service"]))
             elif parsed.path == "/api/player/restart":
-                self.send_json(run_cmd([SYSTEMCTL, "restart", "aerial-signage.service"], timeout=20))
+                self.send_json(restart_player())
+            elif parsed.path == "/api/import-display-settings":
+                payload = self.read_json()
+                plist_text = payload.get("plist")
+                if not isinstance(plist_text, str):
+                    raise ValueError("plist must be a string")
+                self.send_json(import_display_settings_plist(plist_text))
             elif parsed.path == "/api/reboot":
                 self.send_json(start_cmd([SYSTEMCTL, "reboot"]))
             else:

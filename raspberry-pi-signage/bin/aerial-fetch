@@ -247,6 +247,22 @@ def entry_label(entry: Dict[str, Any]) -> str:
     return entry_id(entry)
 
 
+def entry_name(entry: Dict[str, Any]) -> str:
+    for key in ("name", "title", "accessibilityLabel", "label"):
+        raw = entry.get(key)
+        if isinstance(raw, str) and raw:
+            return raw
+    return entry_id(entry)
+
+
+def entry_poi_json(entry: Dict[str, Any]) -> str:
+    raw = entry.get("pointsOfInterest")
+    if isinstance(raw, dict):
+        clean = {str(key): str(value) for key, value in raw.items() if str(value)}
+        return json.dumps(clean, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return ""
+
+
 def resolve_scene(entry: Dict[str, Any], scene_map: Dict[str, str]) -> str:
     scene = normalize_scene(entry.get("scene") or entry.get("category"))
     if scene:
@@ -448,7 +464,7 @@ def tsv_field(value: Any) -> str:
     return str(value or "").replace("\t", " ").replace("\r", " ").replace("\n", " ")
 
 
-def write_labels(rows: Iterable[Tuple[str, str, str, str]], labels_file: Path) -> None:
+def write_labels(rows: Iterable[Tuple[str, ...]], labels_file: Path) -> None:
     labels_file.parent.mkdir(parents=True, exist_ok=True)
     lines = ["\t".join(tsv_field(field) for field in row) for row in rows]
     tmp_path = labels_file.with_suffix(labels_file.suffix + ".part")
@@ -559,13 +575,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     available: List[Path] = []
-    label_rows: List[Tuple[str, str, str, str]] = []
+    label_rows: List[Tuple[str, str, str, str, str, str]] = []
     for index, (entry, url) in enumerate(selected_entries, 1):
         log(f"[{index}/{len(urls)}] {url}")
         path = download_one(url, cache_dir)
         if path is not None and path.exists() and path.stat().st_size > 0:
             available.append(path)
-            label_rows.append((path.name, entry_label(entry), entry_id(entry), resolve_scene(entry, scene_map)))
+            label_rows.append(
+                (
+                    path.name,
+                    entry_label(entry),
+                    entry_id(entry),
+                    resolve_scene(entry, scene_map),
+                    entry_name(entry),
+                    entry_poi_json(entry),
+                )
+            )
 
     if not available:
         log("no videos available; playlist was not written")

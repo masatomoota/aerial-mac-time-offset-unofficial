@@ -53,8 +53,15 @@ function M.format_date(now_epoch, cfg)
   local lang = cfg.lang or "ja"
   local t = os.date("*t", now_epoch)
 
-  if mode == "numeric" then
-    return string.format("%04d-%02d-%02d", t.year, t.month, t.day)
+  if mode == "custom" then
+    return os.date(cfg.custom_format or "%Y-%m-%d", now_epoch)
+  end
+
+  if mode == "numeric" or mode == "compact" then
+    if with_year then
+      return string.format("%04d/%02d/%02d", t.year, t.month, t.day)
+    end
+    return string.format("%02d/%02d", t.month, t.day)
   end
 
   if lang == "en" then
@@ -115,14 +122,48 @@ function M.unescape(text)
 end
 
 function M.alignment_for(corner)
+  corner = M.normalize_corner(corner)
   local map = {
     topLeft = 7,
+    topCenter = 8,
     topRight = 9,
     bottomLeft = 1,
+    bottomCenter = 2,
     bottomRight = 3,
+    screenCenter = 5,
     center = 5,
+    left = 4,
+    right = 6,
+    absTopRight = 9,
   }
   return map[corner] or 3
+end
+
+-- See docs/display-settings-mapping.md for the authoritative spec/Windows/env table.
+function M.normalize_corner(corner)
+  local raw = tostring(corner or "")
+  local map = {
+    topLeft = "topLeft",
+    topCenter = "topCenter",
+    topRight = "topRight",
+    bottomLeft = "bottomLeft",
+    bottomCenter = "bottomCenter",
+    bottomRight = "bottomRight",
+    screenCenter = "screenCenter",
+    center = "screenCenter",
+    random = "random",
+    absTopRight = "absTopRight",
+    topleft = "topLeft",
+    topmiddle = "topCenter",
+    topright = "topRight",
+    bottomleft = "bottomLeft",
+    bottommiddle = "bottomCenter",
+    bottomright = "bottomRight",
+    middle = "screenCenter",
+    left = "left",
+    right = "right",
+  }
+  return map[raw] or raw
 end
 
 function M.rgb_to_ass_bgr(rrggbb)
@@ -139,7 +180,7 @@ end
 function M.offset_minutes_from_env(raw)
   local value = tonumber(raw)
   if value == nil then
-    return 10
+    return 0
   end
   return value
 end
