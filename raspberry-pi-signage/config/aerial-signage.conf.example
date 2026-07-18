@@ -43,10 +43,21 @@ AERIAL_STRICT_QUALITY=0
 AERIAL_SHUFFLE=1
 
 # --- mpv / display ---
+# gpu is the safe default. On a real Pi 4 (Trixie/mpv 0.40) the gpu renderer
+# could only present ~15 fps; gpu-next is fast BUT cannot sample the Pi's
+# tiled 10-bit HEVC frames (solid purple screen). The proven smooth combo on
+# Pi 4 is: AERIAL_QUALITY=1080-h264 + AERIAL_STRICT_QUALITY=1 +
+# AERIAL_MPV_VO=gpu-next + AERIAL_MPV_HWDEC=v4l2m2m-copy +
+# AERIAL_MPV_EXTRA="--drm-mode=1920x1080 --video-sync=display-resample"
+# (see README "Performance tuning").
 AERIAL_MPV_VO=gpu
 # drm on a Pi console; set auto to test on a desktop or macOS.
 AERIAL_MPV_GPU_CONTEXT=drm
-# drm-copy for HEVC hardware decode on Pi; set auto for desktop testing.
+# drm-copy for HEVC hardware decode on Pi; v4l2m2m-copy for H.264;
+# set auto for desktop testing.
 AERIAL_MPV_HWDEC=drm-copy
 # Extra raw mpv flags. Keep paths without spaces; the launcher parses this as words.
+# On a 4K display add: --drm-mode=1920x1080 (let the TV upscale; the Pi 4 GPU
+# cannot shader-upscale 1080p->4K in realtime). --video-sync=display-resample
+# locks presentation to the display for judder-free 29.97fps on a 60Hz mode.
 AERIAL_MPV_EXTRA=

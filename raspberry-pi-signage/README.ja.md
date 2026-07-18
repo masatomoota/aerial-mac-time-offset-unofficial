@@ -102,6 +102,32 @@ Pi 以外のデスクトップで試す場合は次のようにします。
 AERIAL_MPV_GPU_CONTEXT=auto AERIAL_MPV_HWDEC=auto /opt/aerial-signage/bin/aerial-signage
 ```
 
+## パフォーマンスチューニング（実機 Pi 4 + 4K TV / Trixie / mpv 0.40 での実測）
+
+実デプロイで遭遇した症状と原因・対策：
+
+| 症状 | 原因 | 対策 |
+| --- | --- | --- |
+| 約3fps・CPU高負荷 | `hwdec=drm-copy` がタイル形式10bit HEVCを毎フレームCPUコピー | ゼロコピー化 or H.264 |
+| コーデックに関係なく約15fps | 旧 `--vo=gpu` レンダラの表示限界 | `AERIAL_MPV_VO=gpu-next` |
+| `gpu-next` で**紫一色** | libplacebo が Pi のタイル形式（`rpi4_10` SAND）10bit を読めない | H.264 版を再生する |
+| 30fps 付近でカクつく | 29.97fps 素材と 60.00Hz vsync のリズム不一致 | `--video-sync=display-resample` |
+| 4K ディスプレイで極端に遅い | Pi 4 GPU が毎フレーム 1080p→4K をシェーダ拡大 | `--drm-mode=1920x1080`（拡大はTV任せ） |
+
+**Pi 4 での確定動作設定**（10秒間ドロップ0・CPU約17%を実測）:
+
+```
+AERIAL_QUALITY=1080-h264
+AERIAL_STRICT_QUALITY=1
+AERIAL_MPV_VO=gpu-next
+AERIAL_MPV_HWDEC=v4l2m2m-copy
+AERIAL_MPV_EXTRA="--drm-mode=1920x1080 --video-sync=display-resample"
+```
+
+これは macOS 版 Aerial の H.264/HEVC 選択と同じ発想です。Pi 4 では H.264 版を選ぶ —
+8bit リニア形式なのでタイル10bit の表示問題を根本から回避でき、専用 H.264 ハードデコーダで
+1080p は余裕です（HEVC はデコード自体は 84fps と高速で、ボトルネックは**タイル10bitの表示**でした）。
+
 ## トラブルシューティング
 
 黒画面になる場合は、mpv が DRM/KMS を所有できていない可能性があります。デスクトップではなくコンソールへ起動し、tty1 で実行し、`AERIAL_MPV_GPU_CONTEXT=drm` を使ってください。

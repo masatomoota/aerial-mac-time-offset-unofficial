@@ -102,6 +102,33 @@ For non-Pi desktop testing, set:
 AERIAL_MPV_GPU_CONTEXT=auto AERIAL_MPV_HWDEC=auto /opt/aerial-signage/bin/aerial-signage
 ```
 
+## Performance tuning (measured on a real Pi 4 + 4K TV, Trixie, mpv 0.40)
+
+Symptoms and their causes, from an actual deployment:
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| ~3 fps, high CPU | `hwdec=drm-copy` copies tiled 10-bit HEVC frames through the CPU every frame | use zero-copy or H.264 |
+| ~15 fps regardless of codec | the classic `--vo=gpu` renderer cannot present faster on this stack | `AERIAL_MPV_VO=gpu-next` |
+| Solid **purple** screen with `gpu-next` | libplacebo cannot sample the Pi's tiled (`rpi4_10` SAND) 10-bit HEVC format | play the H.264 set instead |
+| Judder at ~30fps | 29.97 fps content vs 60.00 Hz vsync cadence | `--video-sync=display-resample` |
+| Extreme slowness on a 4K display | Pi 4 GPU shader-upscaling 1080p→4K every frame | `--drm-mode=1920x1080` (TV upscales) |
+
+**Known-good Pi 4 configuration** (0 dropped frames measured over 10 s, ~17 % CPU):
+
+```
+AERIAL_QUALITY=1080-h264
+AERIAL_STRICT_QUALITY=1
+AERIAL_MPV_VO=gpu-next
+AERIAL_MPV_HWDEC=v4l2m2m-copy
+AERIAL_MPV_EXTRA="--drm-mode=1920x1080 --video-sync=display-resample"
+```
+
+This mirrors the macOS Aerial app's own H.264/HEVC choice: on Pi 4, choose the H.264 set — its
+8-bit linear frames avoid the tiled-10-bit display path entirely, and the dedicated H.264 hardware
+decoder handles 1080p easily. (HEVC decode itself is fast — 84 fps measured — the bottleneck is
+*displaying* the tiled 10-bit frames.)
+
 ## Troubleshooting
 
 Black screen usually means mpv does not own DRM/KMS. Boot to console instead of desktop, run on tty1, and keep `AERIAL_MPV_GPU_CONTEXT=drm`.
