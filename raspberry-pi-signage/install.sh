@@ -100,7 +100,7 @@ install_apple_root_ca() {
 
 printf 'Installing mpv and dependencies...\n'
 apt-get update
-apt-get install -y mpv python3 ca-certificates openssl curl
+apt-get install -y mpv python3 ca-certificates openssl curl fonts-noto-cjk
 
 if [[ "$no_apple_ca" -eq 0 ]]; then
   install_apple_root_ca

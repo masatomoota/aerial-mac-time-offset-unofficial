@@ -53,13 +53,13 @@ fi
 : "${AERIAL_CLOCK_CUSTOM_FORMAT:=%H:%M}"
 : "${AERIAL_CLOCK_CORNER:=bottomLeft}"
 : "${AERIAL_CLOCK_FONT_SIZE:=50}"
-: "${AERIAL_CLOCK_FONT:=}"
+: "${AERIAL_CLOCK_FONT:=Noto Sans CJK JP}"
 : "${AERIAL_CLOCK_MARGIN:=60}"
 : "${AERIAL_CLOCK_COLOR:=FFFFFF}"
 : "${AERIAL_DATE_ENABLED:=1}"
 : "${AERIAL_DATE_CORNER:=bottomLeft}"
 : "${AERIAL_DATE_FONT_SIZE:=25}"
-: "${AERIAL_DATE_FONT:=}"
+: "${AERIAL_DATE_FONT:=Noto Sans CJK JP}"
 : "${AERIAL_DATE_COLOR:=FFFFFF}"
 : "${AERIAL_DATE_MARGIN:=60}"
 : "${AERIAL_DATE_FORMAT:=textual}"
@@ -68,16 +68,18 @@ fi
 : "${AERIAL_LOC_ENABLED:=1}"
 : "${AERIAL_LOC_CORNER:=topRight}"
 : "${AERIAL_LOC_FONT_SIZE:=28}"
-: "${AERIAL_LOC_FONT:=}"
+: "${AERIAL_LOC_FONT:=Noto Sans CJK JP}"
 : "${AERIAL_LOC_COLOR:=FFFFFF}"
 : "${AERIAL_LOC_MARGIN:=60}"
 : "${AERIAL_LABELS_FILE:=/var/lib/aerial-signage/labels.tsv}"
 : "${AERIAL_MSG_ENABLED:=1}"
 : "${AERIAL_MSG_CORNER:=bottomRight}"
 : "${AERIAL_MSG_FONT_SIZE:=24}"
-: "${AERIAL_MSG_FONT:=}"
+: "${AERIAL_MSG_FONT:=Noto Sans CJK JP}"
 : "${AERIAL_MSG_COLOR:=FFFFFF}"
 : "${AERIAL_MSG_MARGIN:=60}"
+: "${AERIAL_OSD_BORDER:=0}"
+: "${AERIAL_OSD_SHADOW:=1}"
 : "${AERIAL_MSG_TEXT:=Studio Vibes Wi-Fi\nSSID : fcm-dkym-booth\nPW : dkymfcm117}"
 : "${AERIAL_QUALITY:=1080-sdr}"
 : "${AERIAL_SOURCE:=classic63}"
@@ -135,6 +137,8 @@ export AERIAL_MSG_FONT
 export AERIAL_MSG_COLOR
 export AERIAL_MSG_MARGIN
 export AERIAL_MSG_TEXT
+export AERIAL_OSD_BORDER
+export AERIAL_OSD_SHADOW
 
 mpv_args=(
   --fullscreen

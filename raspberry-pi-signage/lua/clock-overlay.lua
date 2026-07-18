@@ -81,6 +81,9 @@ local ok, err = pcall(function()
 
   load_labels(env("AERIAL_LABELS_FILE", "/var/lib/aerial-signage/labels.tsv"))
 
+  local osd_border = number_env("AERIAL_OSD_BORDER", 0)
+  local osd_shadow = number_env("AERIAL_OSD_SHADOW", 1)
+
   local layer_specs = {
     CLOCK = {
       prefix = "AERIAL_CLOCK",
@@ -212,7 +215,7 @@ local ok, err = pcall(function()
           y = y + offset
         end
         layer.overlay.data = string.format(
-          "{\\an%d\\fs%d\\bord2\\shad1\\1c%s%s\\pos(%d,%d)}%s",
+          "{\\an%d\\fs%d\\bord" .. osd_border .. "\\shad" .. osd_shadow .. "\\1c%s%s\\pos(%d,%d)}%s",
           clock.alignment_for(layer.corner),
           layer.font_size,
           layer.color,
