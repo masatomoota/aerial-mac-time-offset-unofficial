@@ -53,6 +53,24 @@ assert_equal(clock.alignment_for("right"), 6, "right")
 assert_equal(clock.alignment_for("unknown"), 3, "default alignment")
 assert_equal(clock.rgb_to_ass_bgr("FF0000"), "&H0000FF&", "red bgr")
 
+local ass_line = clock.build_layer_ass_line({
+  corner = "bottomLeft",
+  font_size = 50,
+  border = 0,
+  shadow = 1,
+  color = "FFFFFF",
+  font = "Segoe UI",
+  x = 60,
+  y = 1020,
+  text = "12:34",
+})
+assert_equal(ass_line:match("\\1c&HFFFFFF&") ~= nil, true, "ass primary fill is white")
+assert_equal(ass_line:match("\\1a&H00&") ~= nil, true, "ass primary fill is opaque")
+assert_equal(ass_line:match("\\bord0\\shad1") ~= nil, true, "ass windows border shadow geometry")
+assert_equal(ass_line:match("\\3c&H444444&\\3a&HFF&") ~= nil, true, "ass transparent gray outline")
+assert_equal(ass_line:match("\\4c&H444444&\\4a&H00&") ~= nil, true, "ass gray shadow")
+assert_equal(ass_line:match("\\b0") ~= nil, true, "ass normal font weight")
+
 assert_equal(clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "textual", lang = "ja" }), "7月18日（土）", "ja textual date")
 assert_equal(
   clock.format_date(epoch(2026, 7, 18, 12, 0, 0), { format = "textual", lang = "ja", with_year = true }),

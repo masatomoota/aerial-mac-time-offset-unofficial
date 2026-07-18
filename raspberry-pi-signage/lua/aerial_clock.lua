@@ -177,6 +177,38 @@ function M.rgb_to_ass_bgr(rrggbb)
   return "&H" .. bb .. gg .. rr .. "&"
 end
 
+function M.ass_escape(text)
+  return tostring(text):gsub("\\", "\\\\"):gsub("{", "\\{"):gsub("}", "\\}"):gsub("\n", "\\N")
+end
+
+function M.font_tag(font)
+  if font == nil or font == "" then
+    return ""
+  end
+  return "\\fn" .. M.ass_escape(font)
+end
+
+function M.build_layer_ass_line(opts)
+  opts = opts or {}
+  local corner = opts.corner or "bottomRight"
+  local primary = M.rgb_to_ass_bgr(opts.color or "FFFFFF")
+  local shadow = M.rgb_to_ass_bgr(opts.shadow_color or "444444")
+  return string.format(
+    "{\\an%d\\fs%d\\b0\\bord%d\\shad%d\\1c%s\\1a&H00&\\3c%s\\3a&HFF&\\4c%s\\4a&H00&%s\\pos(%d,%d)}%s",
+    opts.alignment or M.alignment_for(corner),
+    opts.font_size or 38,
+    opts.border or 0,
+    opts.shadow or 1,
+    primary,
+    shadow,
+    shadow,
+    M.font_tag(opts.font or ""),
+    opts.x or 0,
+    opts.y or 0,
+    M.ass_escape(opts.text or "")
+  )
+end
+
 function M.offset_minutes_from_env(raw)
   local value = tonumber(raw)
   if value == nil then

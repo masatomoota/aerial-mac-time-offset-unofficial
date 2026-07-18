@@ -32,17 +32,6 @@ local ok, err = pcall(function()
     return math.floor(value)
   end
 
-  local function ass_escape(text)
-    return tostring(text):gsub("\\", "\\\\"):gsub("{", "\\{"):gsub("}", "\\}"):gsub("\n", "\\N")
-  end
-
-  local function font_tag(font)
-    if font == "" then
-      return ""
-    end
-    return "\\fn" .. ass_escape(font)
-  end
-
   local function base_position(corner, margin)
     corner = clock.normalize_corner(corner)
     if corner == "topLeft" then
@@ -148,8 +137,8 @@ local ok, err = pcall(function()
       overlay = overlay,
       corner = clock.normalize_corner(env(spec.prefix .. "_CORNER", spec.default_corner)),
       font_size = number_env(spec.prefix .. "_FONT_SIZE", spec.default_size),
-      font = env(spec.prefix .. "_FONT", ""),
-      color = clock.rgb_to_ass_bgr(env(spec.prefix .. "_COLOR", "FFFFFF")),
+      font = env(spec.prefix .. "_FONT", "Segoe UI"),
+      color = env(spec.prefix .. "_COLOR", "FFFFFF"),
       margin = number_env(spec.prefix .. "_MARGIN", spec.default_margin),
       text = "",
     }
@@ -271,16 +260,18 @@ local ok, err = pcall(function()
         elseif layer.corner == "topLeft" or layer.corner == "topCenter" or layer.corner == "topRight" or layer.corner == "screenCenter" or layer.corner == "left" or layer.corner == "right" or layer.corner == "absTopRight" then
           y = y + offset
         end
-        layer.overlay.data = string.format(
-          "{\\an%d\\fs%d\\bord" .. osd_border .. "\\shad" .. osd_shadow .. "\\1c%s%s\\pos(%d,%d)}%s",
-          clock.alignment_for(layer.corner),
-          layer.font_size,
-          layer.color,
-          font_tag(layer.font),
-          x,
-          y,
-          ass_escape(layer.text)
-        )
+        layer.overlay.data = clock.build_layer_ass_line({
+          corner = layer.corner,
+          font_size = layer.font_size,
+          border = osd_border,
+          shadow = osd_shadow,
+          color = layer.color,
+          shadow_color = "444444",
+          font = layer.font,
+          x = x,
+          y = y,
+          text = layer.text,
+        })
         layer.overlay:update()
       end
     end
